@@ -1,0 +1,69 @@
+logger: main.go:25: Start server.
+logger: network.go:41: Network port :8000
+logger: network.go:70: json: cannot unmarshal object into Go struct field ReqMsg.ArgsType of type reflect.Type
+logger: network.go:56: Remote machine [127.0.0.1:54082] close connection.
+logger: main.go:25: Start server.
+logger: network.go:41: Network port :8000
+logger: network.go:70: json: cannot unmarshal object into Go struct field ReqMsg.ArgsType of type reflect.Type
+logger: network.go:56: Remote machine [127.0.0.1:63616] close connection.
+logger: main.go:25: Start server.
+logger: network.go:41: Network port :8000
+logger: network.go:70: json: cannot unmarshal object into Go struct field ReqMsg.ArgsType of type reflect.Type
+logger: network.go:56: Remote machine [127.0.0.1:63673] close connection.
+logger: main.go:25: Start server.
+logger: network.go:40: Network port :8000
+logger: network.go:55: Remote machine [127.0.0.1:49535] close connection.
+logger: main.go:25: Start server.
+logger: network.go:40: Network port :8000
+logger: network.go:69: json: cannot unmarshal object into Go struct field ReqMsg.ArgsType of type reflect.Type
+logger: network.go:55: Remote machine [127.0.0.1:49563] close connection.
+logger: main.go:25: Start server.
+logger: network.go:40: Network port :8000
+logger: network.go:55: Remote machine [127.0.0.1:49660] close connection.
+logger: main.go:25: Start server.
+logger: network.go:40: Network port :8000
+logger: network.go:55: Remote machine [127.0.0.1:49720] close connection.
+logger: main.go:25: Start server.
+logger: network.go:41: Network port :8000
+logger: network.go:56: Remote machine [127.0.0.1:49769] close connection.
+logger: main.go:26: Start server.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:51856] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:51915] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:51944] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:51982] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:52084] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:52098] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:52192] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:52306] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:52321] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:52348] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:52380] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:59183] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:59185] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:63493] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:63501] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:63508] close connection.
+logger: main.go:26: Start server.
+logger: network.go:51: Network port :8000
+logger: network.go:70: Remote machine [127.0.0.1:63519] close connection.
+logger: network.go:70: Remote machine [127.0.0.1:63521] close connection.
