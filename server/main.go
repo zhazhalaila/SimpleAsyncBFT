@@ -1,6 +1,7 @@
 package main
 
 import (
+	"SimpleAsyncBFT/connector"
 	"SimpleAsyncBFT/consensus"
 	"SimpleAsyncBFT/libnet"
 	"flag"
@@ -11,6 +12,10 @@ import (
 func main() {
 	path := flag.String("path", "log.txt", "log file path")
 	port := flag.String("port", ":8000", "network port number")
+	id := flag.Int("id", 0, "assign a unique number to different server")
+	n := flag.Int("n", 4, "total node number")
+	f := flag.Int("f", 1, "byzantine node number")
+	flag.Parse()
 
 	// Create file to store log.
 	logPath := "../" + *path
@@ -28,8 +33,13 @@ func main() {
 	// Create network.
 	rn := libnet.MakeNetwork(*port, logger)
 
-	// Register service.
-	cm := consensus.MakeConsensusModule()
+	// Register connect service.
+	cs := connector.MakeConnectService(logger, rn)
+	csSvc := libnet.MakeService(cs)
+	rn.AddService(csSvc)
+
+	// Register consensus service.
+	cm := consensus.MakeConsensusModule(*n, *f, *id, logger, cs)
 	cmSvc := libnet.MakeService(cm)
 	rn.AddService(cmSvc)
 

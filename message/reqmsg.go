@@ -1,8 +1,7 @@
 package message
 
-type Proof struct {
-	Sender int
-	Proof  string
+type Input struct {
+	Txs []string
 }
 
 type ReqMsg struct {

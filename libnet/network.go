@@ -61,8 +61,15 @@ func (rn *Network) Start() {
 	}
 }
 
-func (rn *Network) PrintHello(m message.Proof) {
-	rn.logger.Println(m)
+// func (rn *Network) PrintHello(m message.Proof) {
+// 	rn.logger.Println(m)
+// }
+
+func (rn *Network) GetConn(remoteAddr string) net.Conn {
+	if conn, ok := rn.conns[remoteAddr]; ok {
+		return conn
+	}
+	return nil
 }
 
 func (rn *Network) handleConn(conn net.Conn) {
