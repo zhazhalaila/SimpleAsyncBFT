@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/klauspost/reedsolomon"
 	"go.dedis.ch/kyber/v3/pairing/bn256"
@@ -27,6 +28,7 @@ type ConsensusModule struct {
 	round  int                       // Execute round.
 	prs    map[int]map[int]*PRBC     // Record prbc for each round.
 	prOuts map[int]map[int]PRBCOut   // Result of prbc.
+	bas    map[int]*BA               // Record ba for each round.
 }
 
 func MakeConsensusModule(n, f, id int, logger *log.Logger, cs *connector.ConnectService) *ConsensusModule {
@@ -41,6 +43,7 @@ func MakeConsensusModule(n, f, id int, logger *log.Logger, cs *connector.Connect
 	cm.priKey = decodekeys.DecodePriShare(cm.suite, cm.n, cm.f+1, cm.id)
 	cm.round = 0
 	cm.prs = make(map[int]map[int]*PRBC)
+	cm.bas = make(map[int]*BA)
 	return cm
 }
 
@@ -91,35 +94,67 @@ func (cm *ConsensusModule) HandleVal(val message.Val) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle val from [sender:%d].\n", val.Round, cm.id, val.Proposer)
 
 	cm.PRBCCheck(val.Round, val.Proposer)
-	cm.prs[val.Round][val.Proposer].ValHandler(cm.id, val.Round, val)
+	cm.prs[val.Round][val.Proposer].ValHandler(val)
 }
 
 func (cm *ConsensusModule) HandleEcho(echo message.Echo) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle echo from [sender:%d].\n", echo.Round, cm.id, echo.Sender)
 
 	cm.PRBCCheck(echo.Round, echo.Proposer)
-	cm.prs[echo.Round][echo.Proposer].EchoHandler(cm.id, echo.Round, echo)
+	cm.prs[echo.Round][echo.Proposer].EchoHandler(echo)
 }
 
 func (cm *ConsensusModule) HandleReady(ready message.Ready) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle ready from [sender:%d].\n", ready.Round, cm.id, ready.Sender)
 
 	cm.PRBCCheck(ready.Round, ready.Proposer)
-	cm.prs[ready.Round][ready.Proposer].ReadyHandler(cm.id, ready.Round, ready)
+	cm.prs[ready.Round][ready.Proposer].ReadyHandler(ready)
 }
 
 func (cm *ConsensusModule) HandleRBCProof(proof message.RBCProof) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle proof from [endorser:%d].\n", proof.Round, cm.id, proof.Endorser)
 
 	cm.PRBCCheck(proof.Round, proof.Proposer)
-	cm.prs[proof.Round][proof.Proposer].ProofHandler(cm.id, proof.Round, proof)
+	cm.prs[proof.Round][proof.Proposer].ProofHandler(proof)
 }
 
 func (cm *ConsensusModule) HandleFinish(fin message.Finish) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle finish from [Leader:%d].\n", fin.Round, cm.id, fin.LeaderId)
 
 	cm.PRBCCheck(fin.Round, fin.Proposer)
-	cm.prs[fin.Round][fin.Proposer].FinishHandler(cm.id, fin.Round, fin)
+	cm.prs[fin.Round][fin.Proposer].FinishHandler(fin)
+}
+
+func (cm *ConsensusModule) HandleBAInput(in message.BAInput) {
+	cm.logger.Printf("[Round:%d]: [Peer:%d] handle BAInput.\n", cm.round, cm.id)
+
+	cm.bas[cm.round] = MakeBA(cm.n, cm.f, cm.id, cm.round, in.EST, cm.logger, cm.cs)
+}
+
+func (cm *ConsensusModule) HandleEST(est message.EST) {
+	cm.logger.Printf("[Round:%d]: [Peer:%d] receive est from [Sender:%d].\n", est.Round, cm.id, est.Sender)
+
+	// Wait for BA input.
+	for {
+		if _, ok := cm.bas[est.Round]; ok {
+			cm.bas[est.Round].ESTHandler(est)
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
+	cm.logger.Printf("[Round:%d]: [Peer:%d] receive aux from [Sender:%d].\n", aux.Round, cm.id, aux.Sender)
+
+	// Wait for BA input.
+	for {
+		if _, ok := cm.bas[aux.Round]; ok {
+			cm.bas[aux.Round].AUXHandler(aux)
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func (cm *ConsensusModule) PRBCCheck(round, proposer int) {
@@ -137,7 +172,7 @@ func (cm *ConsensusModule) PRBCCheck(round, proposer int) {
 	}
 
 	if _, ok := cm.prs[round][proposer]; !ok {
-		cm.prs[round][proposer] = MakePRBC(cm.n, cm.f, proposer, cm.logger, cm.cs, cm.suite, cm.pubKey, cm.priKey)
+		cm.prs[round][proposer] = MakePRBC(cm.n, cm.f, cm.id, round, proposer, cm.logger, cm.cs, cm.suite, cm.pubKey, cm.priKey)
 		// Channel monitor.
 		go func() {
 			prOut := <-cm.prs[round][proposer].done

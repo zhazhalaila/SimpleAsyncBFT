@@ -16,6 +16,8 @@ type PRBC struct {
 	mu              sync.Mutex                // Prevent data race.
 	n               int                       // Peers number.
 	f               int                       // Byzantine peers number.
+	id              int                       // Peer's identify.
+	round           int                       // Current prbc round.
 	k               int                       // Erasure code lower bound.
 	logger          *log.Logger               // Log info (global).
 	cs              *connector.ConnectService // Broadcast.
@@ -42,7 +44,7 @@ type PRBCOut struct {
 }
 
 func MakePRBC(
-	n, f, proposer int,
+	n, f, id, round, proposer int,
 	logger *log.Logger,
 	cs *connector.ConnectService,
 	suite *bn256.Suite,
@@ -51,6 +53,8 @@ func MakePRBC(
 	pr := &PRBC{}
 	pr.n = n
 	pr.f = f
+	pr.id = id
+	pr.round = round
 	pr.logger = logger
 	pr.cs = cs
 	pr.suite = suite
@@ -69,17 +73,17 @@ func MakePRBC(
 	return pr
 }
 
-func (pr *PRBC) ValHandler(id, round int, valReq message.Val) {
+func (pr *PRBC) ValHandler(valReq message.Val) {
 	rootHash := valReq.RootHash
 	branch := valReq.Branch
 	shard := valReq.Shard
 
-	if merkletree.MerkleTreeVerify(pr.n, shard, rootHash, branch, id) {
+	if merkletree.MerkleTreeVerify(pr.n, shard, rootHash, branch, pr.id) {
 		// Generate echo msg.
 		echoBC := message.Echo{
 			Proposer: valReq.Proposer,
-			Sender:   id,
-			Round:    round,
+			Sender:   pr.id,
+			Round:    pr.round,
 			RootHash: rootHash,
 			Branch:   branch,
 			Shard:    shard}
@@ -87,13 +91,13 @@ func (pr *PRBC) ValHandler(id, round int, valReq message.Val) {
 		echoMsg := message.MessageEncode(echoBC)
 		// Broadcast reqmsg.
 		go func() {
-			pr.logger.Printf("[Round:%d] prbc [%d] broadcast echo msg.\n", round, id)
+			pr.logger.Printf("[Round:%d] prbc [%d] broadcast echo msg.\n", pr.round, pr.id)
 			pr.cs.Broadcast(echoMsg)
 		}()
 	}
 }
 
-func (pr *PRBC) EchoHandler(id, round int, echoReq message.Echo) {
+func (pr *PRBC) EchoHandler(echoReq message.Echo) {
 	sender := echoReq.Sender
 	rootHash := echoReq.RootHash
 	branch := echoReq.Branch
@@ -104,7 +108,7 @@ func (pr *PRBC) EchoHandler(id, round int, echoReq message.Echo) {
 
 	// Redundant validation.
 	if _, ok := pr.shards[sender]; ok {
-		pr.logger.Printf("[Round:%d] PRBC Redundant ECHO.\n", round)
+		pr.logger.Printf("[Round:%d] PRBC Redundant ECHO.\n", pr.round)
 		return
 	}
 
@@ -112,7 +116,7 @@ func (pr *PRBC) EchoHandler(id, round int, echoReq message.Echo) {
 	if merkletree.MerkleTreeVerify(pr.n, shard, rootHash, branch, sender) {
 		pr.shards[sender] = shard
 	} else {
-		pr.logger.Printf("[Round:%d] PRBC receive invalid echo msg from %d.\n", round, sender)
+		pr.logger.Printf("[Round:%d] PRBC receive invalid echo msg from %d.\n", pr.round, sender)
 		return
 	}
 
@@ -121,14 +125,14 @@ func (pr *PRBC) EchoHandler(id, round int, echoReq message.Echo) {
 		// Generate ready msg.
 		readyBC := message.Ready{
 			Proposer: echoReq.Proposer,
-			Sender:   id,
-			Round:    round,
+			Sender:   pr.id,
+			Round:    pr.round,
 			RootHash: rootHash}
 		// Encode ready msg.
 		readyMsg := message.MessageEncode(readyBC)
 		// Broadcast reqmsg.
 		go func() {
-			pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", round, id)
+			pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", pr.round, pr.id)
 			pr.cs.Broadcast(readyMsg)
 		}()
 	}
@@ -136,12 +140,12 @@ func (pr *PRBC) EchoHandler(id, round int, echoReq message.Echo) {
 	if len(pr.ready) >= pr.outputThreshold && len(pr.shards) >= pr.k && pr.rbcOut == nil {
 		pr.rbcOut = pr.decode()
 		go func() {
-			pr.proofSend(id, round, rootHash)
+			pr.proofSend(rootHash)
 		}()
 	}
 }
 
-func (pr *PRBC) ReadyHandler(id, round int, readyReq message.Ready) {
+func (pr *PRBC) ReadyHandler(readyReq message.Ready) {
 	sender := readyReq.Sender
 	rootHash := readyReq.RootHash
 
@@ -150,7 +154,7 @@ func (pr *PRBC) ReadyHandler(id, round int, readyReq message.Ready) {
 
 	// Redundant validation.
 	if _, ok := pr.ready[sender]; ok {
-		pr.logger.Printf("[Round:%d] PRBC Redundant READY.\n", round)
+		pr.logger.Printf("[Round:%d] PRBC Redundant READY.\n", pr.round)
 		return
 	}
 	pr.ready[sender] = sender
@@ -161,14 +165,14 @@ func (pr *PRBC) ReadyHandler(id, round int, readyReq message.Ready) {
 		// Generate ready msg.
 		readyBC := message.Ready{
 			Proposer: readyReq.Proposer,
-			Sender:   id,
-			Round:    round,
+			Sender:   pr.id,
+			Round:    pr.round,
 			RootHash: rootHash}
 		// Encode ready msg.
 		readyMsg := message.MessageEncode(readyBC)
 		// Broadcast reqmsg.
 		go func() {
-			pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", round, id)
+			pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", pr.round, pr.id)
 			pr.cs.Broadcast(readyMsg)
 		}()
 	}
@@ -176,13 +180,13 @@ func (pr *PRBC) ReadyHandler(id, round int, readyReq message.Ready) {
 	if len(pr.ready) >= pr.outputThreshold && len(pr.shards) >= pr.k && pr.rbcOut == nil {
 		pr.rbcOut = pr.decode()
 		go func() {
-			pr.proofSend(id, round, rootHash)
+			pr.proofSend(rootHash)
 		}()
 	}
 }
 
 // Only leader do this.
-func (pr *PRBC) ProofHandler(id, round int, proofReq message.RBCProof) {
+func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 	endorser := proofReq.Endorser
 	share := proofReq.Share
 	rootHash := proofReq.RootHash
@@ -194,19 +198,19 @@ func (pr *PRBC) ProofHandler(id, round int, proofReq message.RBCProof) {
 	// 2. If receive > 2f+1 valid shares, pass.
 	// 3. If receive invalid shares, pass.
 	// 4. If receive 2f+1 valid shares, comput signature and broadcast it.
-	if id == pr.fromLeader {
+	if pr.id == pr.fromLeader {
 		if pr.signature == nil {
 			if _, ok := pr.shares[endorser]; ok {
-				pr.logger.Printf("[Round:%d] receive Redundant Proof from [Endorser:%d].\n", round, endorser)
+				pr.logger.Printf("[Round:%d] receive Redundant Proof from [Endorser:%d].\n", pr.round, endorser)
 			} else {
 				if message.ShareVerify(rootHash, share, pr.suite, pr.pubKey) {
 					pr.shares[endorser] = share
 				} else {
-					pr.logger.Printf("[Round:%d] receive invalid Proof from [Endorser:%d].\n", round, endorser)
+					pr.logger.Printf("[Round:%d] receive invalid Proof from [Endorser:%d].\n", pr.round, endorser)
 				}
 			}
 			if len(pr.shares) == 2*pr.f+1 {
-				pr.logger.Printf("[Round:%d] [Leader:%d] receive enough Proof.\n", round, id)
+				pr.logger.Printf("[Round:%d] [Leader:%d] receive enough Proof.\n", pr.round, pr.id)
 				var shares [][]byte
 				for _, share := range pr.shares {
 					shares = append(shares, share)
@@ -219,16 +223,16 @@ func (pr *PRBC) ProofHandler(id, round int, proofReq message.RBCProof) {
 						// Generate finish msg.
 						fin := message.Finish{
 							Proposer:  proofReq.Proposer,
-							LeaderId:  id,
+							LeaderId:  pr.id,
 							RootHash:  rootHash,
 							Signature: pr.signature,
 						}
 						// Encode finish msg.
 						finMsg := message.MessageEncode(fin)
 						// Broadcast finish msg except itself.
-						pr.logger.Printf("[Round:%d] [Leader:%d] broadcast signature.\n", round, id)
+						pr.logger.Printf("[Round:%d] [Leader:%d] broadcast signature.\n", pr.round, pr.id)
 						for i := 0; i < pr.n; i++ {
-							if i != id {
+							if i != pr.id {
 								pr.cs.SendToPeer(i, finMsg)
 							}
 						}
@@ -236,14 +240,14 @@ func (pr *PRBC) ProofHandler(id, round int, proofReq message.RBCProof) {
 						pr.outToChannel()
 					}()
 				} else {
-					pr.logger.Printf("[Round:%d] combine invalid signature.\n", round)
+					pr.logger.Printf("[Round:%d] combine invalid signature.\n", pr.round)
 				}
 			}
 		}
 	}
 }
 
-func (pr *PRBC) FinishHandler(id, round int, finReq message.Finish) {
+func (pr *PRBC) FinishHandler(finReq message.Finish) {
 	leader := finReq.LeaderId
 	rootHash := finReq.RootHash
 	signature := finReq.Signature
@@ -253,10 +257,10 @@ func (pr *PRBC) FinishHandler(id, round int, finReq message.Finish) {
 
 	if leader == pr.fromLeader {
 		if pr.signature != nil {
-			pr.logger.Printf("[Round:%d] receive redundant Finish msg from [Leader:%d].\n", round, leader)
+			pr.logger.Printf("[Round:%d] receive redundant Finish msg from [Leader:%d].\n", pr.round, leader)
 		} else {
 			if message.SignatureVerify(rootHash, signature, pr.suite, pr.pubKey) {
-				pr.logger.Printf("[Round:%d] receive valid signature from [Leader:%d].\n", round, leader)
+				pr.logger.Printf("[Round:%d] receive valid signature from [Leader:%d].\n", pr.round, leader)
 				pr.signature = signature
 				go func() {
 					pr.outToChannel()
@@ -275,19 +279,19 @@ func (pr *PRBC) outToChannel() {
 	pr.done <- prOut
 }
 
-func (pr *PRBC) proofSend(id, round int, rootHash []byte) {
+func (pr *PRBC) proofSend(rootHash []byte) {
 	// Generate rbc proof.
 	rbcProof := message.RBCProof{
 		Proposer: pr.fromLeader,
-		Endorser: id,
-		Round:    round,
+		Endorser: pr.id,
+		Round:    pr.round,
 		RootHash: rootHash,
 		Share:    message.GenShare(rootHash, pr.suite, pr.priKey),
 	}
 	// Encode rbc proof.
 	rpMsg := message.MessageEncode(rbcProof)
 	// Send rbc proof.
-	pr.logger.Printf("[Round:%d] [Peer:%d] send proof to [Leader:%d].\n", round, id, pr.fromLeader)
+	pr.logger.Printf("[Round:%d] [Peer:%d] send proof to [Leader:%d].\n", pr.round, pr.id, pr.fromLeader)
 	pr.cs.SendToPeer(pr.fromLeader, rpMsg)
 }
 
