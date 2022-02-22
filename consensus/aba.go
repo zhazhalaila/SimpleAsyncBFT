@@ -7,22 +7,39 @@ import (
 	"sync"
 )
 
+const (
+	BinChange = iota
+	AuxRecv   = iota
+	ConfRecv  = iota
+	Coin      = iota
+	Zero      = iota
+	One       = iota
+	Both      = iota
+)
+
 type BA struct {
-	mu        sync.Mutex                // Prevent data race.
-	n         int                       // Total node number.
-	f         int                       // Byzantine node number.
-	id        int                       // Peer's identify.
-	round     int                       // Consensus round.
-	est       int                       // Peer's adopt value.
-	epoch     int                       // BA epoch.
-	logger    *log.Logger               // Log info (global).
-	cs        *connector.ConnectService // Broadcast.
-	binVals   map[int][]int             // Binary values.
-	estVals   map[int]map[int][]int     // Est value cache.
-	auxVals   map[int]map[int][]int     // Aux value cache.
-	estSent   map[int]map[int]bool      // Est valus sent status.
-	binSignal chan int                  // Binvals change signal.
-	auxDone   chan []int                // Aux done.
+	mu       sync.Mutex                // Prevent data race.
+	n        int                       // Total node number.
+	f        int                       // Byzantine node number.
+	id       int                       // Peer's identify.
+	round    int                       // Consensus round.
+	est      int                       // Peer's adopt value.
+	epoch    int                       // BA epoch.
+	logger   *log.Logger               // Log info (global).
+	cs       *connector.ConnectService // Broadcast.
+	binVals  map[int][]int             // Binary values.
+	estVals  map[int]map[int][]int     // Est value sender cache.
+	auxVals  map[int]map[int][]int     // Aux value sender cache.
+	confVals map[int]map[int][]int     // Conf value sender cache.
+	estSent  map[int]map[int]bool      // Est values sent status.
+	auxSent  map[int]map[int]bool      // Aux values sent status.
+	confSent map[int]bool              // Conf values sent status.
+	signal   chan eventNotify          // Event signal.
+}
+
+type eventNotify struct {
+	event int
+	epoch int
 }
 
 func MakeBA(n, f, id, round, est int, logger *log.Logger, cs *connector.ConnectService) *BA {
@@ -39,9 +56,11 @@ func MakeBA(n, f, id, round, est int, logger *log.Logger, cs *connector.ConnectS
 	ba.binVals = make(map[int][]int)
 	ba.estVals = make(map[int]map[int][]int)
 	ba.auxVals = make(map[int]map[int][]int)
+	ba.confVals = make(map[int]map[int][]int)
 	ba.estSent = make(map[int]map[int]bool)
-	ba.binSignal = make(chan int, 1)
-	ba.auxDone = make(chan []int, 1)
+	ba.auxSent = make(map[int]map[int]bool)
+	ba.confSent = make(map[int]bool)
+	ba.signal = make(chan eventNotify)
 	go ba.run()
 	return ba
 }
@@ -68,26 +87,112 @@ func (ba *BA) run() {
 	// Broad est message.
 	ba.cs.Broadcast(estMsg)
 
-	// Wait for n-f aux message.
-readChannel:
+	// Event handler.
 	for {
-		select {
-		case bin := <-ba.binSignal:
-			ba.logger.Printf("[Round:%d] [Epoch:%d] bin values = [%v].\n", ba.round, ba.epoch, ba.binVals)
-			// Generate aux message.
-			aux := message.AUX{
-				Sender:  ba.id,
-				Round:   ba.round,
-				Epoch:   ba.epoch,
-				Element: bin,
-			}
-			// Encode aux message.
-			auxMsg := message.MessageEncode(aux)
-			ba.cs.Broadcast(auxMsg)
-		case value := <-ba.auxDone:
-			ba.logger.Printf("[Round:%d] [Epoch:%d] receive [%v] values.\n", ba.round, ba.epoch, value)
-			break readChannel
+		v := <-ba.signal
+		if v.event == BinChange {
+			ba.auxBroadcast(v.epoch)
 		}
+		if v.event == AuxRecv {
+			ba.auxCheck(v.epoch)
+		}
+		if v.event == ConfRecv {
+			ba.confCheck(v.epoch)
+		}
+	}
+}
+
+func (ba *BA) auxBroadcast(epoch int) {
+	// Generate aux msg.
+	aux := message.AUX{
+		Sender: ba.id,
+		Round:  ba.round,
+		Epoch:  epoch,
+	}
+	ba.mu.Lock()
+	aux.Element = ba.binVals[ba.epoch][len(ba.binVals[ba.epoch])-1]
+	ba.mu.Unlock()
+	// Encode aux msg.
+	auxMsg := message.MessageEncode(aux)
+	// Broadcast aux msg.
+	ba.cs.Broadcast(auxMsg)
+}
+
+func (ba *BA) auxCheck(epoch int) {
+	ba.mu.Lock()
+	defer ba.mu.Unlock()
+
+	// If conf value has sent, return.
+	if ba.confSent[epoch] {
+		return
+	}
+
+	conf := message.CONF{
+		Sender: ba.id,
+		Round:  ba.round,
+		Epoch:  epoch,
+	}
+
+	// If receive >= 2f+1 aux msg with 1, broadcast 1.
+	if inSlice(1, ba.binVals[epoch]) && len(ba.auxVals[epoch][1]) >= ba.n-ba.f {
+		conf.Val = One
+		ba.confBroadcast(epoch, conf)
+		return
+	}
+	// If receive >= 2f+1 aux msg with 0, broadcast 0.
+	if inSlice(0, ba.binVals[epoch]) && len(ba.auxVals[epoch][0]) >= ba.n-ba.f {
+		conf.Val = Zero
+		ba.confBroadcast(epoch, conf)
+		return
+	}
+	// If receive >= 2f+1 aux msg with 0 || 1, broadcast (0,1)
+	count := 0
+	for _, v := range ba.binVals[epoch] {
+		count += len(ba.auxVals[epoch][v])
+	}
+	if count >= ba.n-ba.f {
+		conf.Val = Both
+		ba.confBroadcast(epoch, conf)
+	}
+}
+
+func (ba *BA) confBroadcast(epoch int, conf message.CONF) {
+	ba.confSent[epoch] = true
+	confMsg := message.MessageEncode(conf)
+	ba.logger.Printf("[Round:%d] [epoch:%d] broadcast [%t].\n", ba.round, epoch, conf.Val == Both)
+	ba.cs.Broadcast(confMsg)
+}
+
+func (ba *BA) confCheck(epoch int) {
+	ba.mu.Lock()
+	defer ba.mu.Unlock()
+
+	if inSlice(1, ba.binVals[epoch]) && len(ba.confVals[epoch][One]) >= ba.n-ba.f {
+		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [1] msg", ba.round, epoch)
+		return
+	}
+
+	if inSlice(0, ba.binVals[epoch]) && len(ba.confVals[epoch][Zero]) >= ba.n-ba.f {
+		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [0] msg", ba.round, epoch)
+		return
+	}
+
+	count := 0
+	for _, v := range ba.binVals[epoch] {
+		if v == Zero {
+			count += len(ba.confVals[epoch][Zero])
+		} else {
+			count += len(ba.confVals[epoch][One])
+		}
+	}
+
+	if len(ba.binVals[epoch]) == 2 {
+		count += len(ba.confVals[epoch][Both])
+	}
+
+	if count == ba.n-ba.f {
+		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [(0,1)] msg", ba.round, epoch)
+		return
 	}
 }
 
@@ -127,7 +232,7 @@ func (ba *BA) ESTHandler(est message.EST) {
 	// Broadcast aux signal.
 	if len(ba.estVals[epoch][v]) == 2*ba.f+1 {
 		ba.binVals[epoch] = append(ba.binVals[epoch], v)
-		ba.binSignal <- v
+		ba.signal <- eventNotify{event: BinChange, epoch: epoch}
 	}
 }
 
@@ -148,23 +253,26 @@ func (ba *BA) AUXHandler(aux message.AUX) {
 
 	ba.auxVals[epoch][e] = append(ba.auxVals[epoch][e], sender)
 
-	if inSlice(1, ba.binVals[epoch]) && len(ba.auxVals[epoch][1]) >= ba.n-ba.f {
-		ba.auxDone <- []int{1}
+	ba.signal <- eventNotify{event: AuxRecv, epoch: epoch}
+}
+
+func (ba *BA) ConfHandler(conf message.CONF) {
+	sender := conf.Sender
+	epoch := conf.Epoch
+	val := conf.Val
+
+	ba.mu.Lock()
+	defer ba.mu.Unlock()
+
+	ba.baCheck(epoch)
+
+	if inSlice(sender, ba.confVals[epoch][val]) {
+		ba.logger.Printf("[Round:%d][Epoch:%d] receive redundant CONF value from [Sender:%d].\n", ba.round, epoch, sender)
 		return
 	}
+	ba.confVals[epoch][val] = append(ba.confVals[epoch][val], sender)
 
-	if inSlice(0, ba.binVals[epoch]) && len(ba.auxVals[epoch][0]) >= ba.n-ba.f {
-		ba.auxDone <- []int{0}
-		return
-	}
-
-	count := 0
-	for _, v := range ba.binVals[epoch] {
-		count += len(ba.auxVals[epoch][v])
-	}
-	if count >= ba.n-ba.f {
-		ba.auxDone <- []int{0, 1}
-	}
+	ba.signal <- eventNotify{event: ConfRecv, epoch: epoch}
 }
 
 func (ba *BA) baCheck(round int) {
@@ -173,6 +281,9 @@ func (ba *BA) baCheck(round int) {
 	}
 	if _, ok := ba.estVals[round]; !ok {
 		ba.estVals[round] = make(map[int][]int)
+	}
+	if _, ok := ba.confVals[round]; !ok {
+		ba.confVals[round] = make(map[int][]int)
 	}
 	if _, ok := ba.auxVals[round]; !ok {
 		ba.auxVals[round] = make(map[int][]int)

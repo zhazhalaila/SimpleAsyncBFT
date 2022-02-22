@@ -12,6 +12,7 @@ import (
 	"go.dedis.ch/kyber/v3/share"
 )
 
+// If consensus module decide to skip current round, prbc will not execute.
 type PRBC struct {
 	mu              sync.Mutex                // Prevent data race.
 	n               int                       // Peers number.
@@ -35,6 +36,7 @@ type PRBC struct {
 	signature       []byte                    // Combine from endoer's partial share.
 	rbcOut          []byte                    // RBC output.
 	done            chan PRBCOut              // Channel to check PRBC done.
+	skip            bool                      // Skip from outside.
 }
 
 type PRBCOut struct {
@@ -70,6 +72,7 @@ func MakePRBC(
 	pr.ready = make(map[int]int)
 	pr.shares = make(map[int][]byte)
 	pr.done = make(chan PRBCOut)
+	pr.skip = false
 	return pr
 }
 
@@ -105,6 +108,10 @@ func (pr *PRBC) EchoHandler(echoReq message.Echo) {
 
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
+
+	if pr.skip {
+		return
+	}
 
 	// Redundant validation.
 	if _, ok := pr.shards[sender]; ok {
@@ -152,6 +159,10 @@ func (pr *PRBC) ReadyHandler(readyReq message.Ready) {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 
+	if pr.skip {
+		return
+	}
+
 	// Redundant validation.
 	if _, ok := pr.ready[sender]; ok {
 		pr.logger.Printf("[Round:%d] PRBC Redundant READY.\n", pr.round)
@@ -194,8 +205,12 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 
+	if pr.skip {
+		return
+	}
+
 	// 1. Check peer identify.
-	// 2. If receive > 2f+1 valid shares, pass.
+	// 2. If receive >= 2f+1 valid shares, pass.
 	// 3. If receive invalid shares, pass.
 	// 4. If receive 2f+1 valid shares, comput signature and broadcast it.
 	if pr.id == pr.fromLeader {
@@ -209,7 +224,7 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 					pr.logger.Printf("[Round:%d] receive invalid Proof from [Endorser:%d].\n", pr.round, endorser)
 				}
 			}
-			if len(pr.shares) == 2*pr.f+1 {
+			if len(pr.shares) >= 2*pr.f+1 {
 				pr.logger.Printf("[Round:%d] [Leader:%d] receive enough Proof.\n", pr.round, pr.id)
 				var shares [][]byte
 				for _, share := range pr.shares {
@@ -219,6 +234,7 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 
 				if message.SignatureVerify(rootHash, signature, pr.suite, pr.pubKey) {
 					pr.signature = signature
+					// Create a new goroutine to broadcast.
 					go func() {
 						// Generate finish msg.
 						fin := message.Finish{
@@ -236,9 +252,9 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 								pr.cs.SendToPeer(i, finMsg)
 							}
 						}
-						// Out to channel.
-						pr.outToChannel()
 					}()
+					// This goroutine will not release lock, until consensus module receive data from channel.
+					pr.outToChannel()
 				} else {
 					pr.logger.Printf("[Round:%d] combine invalid signature.\n", pr.round)
 				}
@@ -255,6 +271,10 @@ func (pr *PRBC) FinishHandler(finReq message.Finish) {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 
+	if pr.skip {
+		return
+	}
+
 	if leader == pr.fromLeader {
 		if pr.signature != nil {
 			pr.logger.Printf("[Round:%d] receive redundant Finish msg from [Leader:%d].\n", pr.round, leader)
@@ -262,9 +282,8 @@ func (pr *PRBC) FinishHandler(finReq message.Finish) {
 			if message.SignatureVerify(rootHash, signature, pr.suite, pr.pubKey) {
 				pr.logger.Printf("[Round:%d] receive valid signature from [Leader:%d].\n", pr.round, leader)
 				pr.signature = signature
-				go func() {
-					pr.outToChannel()
-				}()
+				// This goroutine will not release lock, until consensus module receive data from channel.
+				pr.outToChannel()
 			}
 		}
 	}

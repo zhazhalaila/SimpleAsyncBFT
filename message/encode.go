@@ -54,6 +54,12 @@ func MessageEncode(msg interface{}) ReqMsg {
 		if err != nil {
 			log.Fatal(err)
 		}
+	case CONF:
+		svcMeth = "ConsensusModule.HandleCONF"
+		err := enc.Encode(msg.(CONF))
+		if err != nil {
+			log.Fatal(err)
+		}
 	case Input:
 		svcMeth = "ConsensusModule.HandleInput"
 		err := enc.Encode(msg.(Input))

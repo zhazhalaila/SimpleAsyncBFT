@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/klauspost/reedsolomon"
 	"go.dedis.ch/kyber/v3/pairing/bn256"
@@ -29,6 +28,7 @@ type ConsensusModule struct {
 	prs    map[int]map[int]*PRBC     // Record prbc for each round.
 	prOuts map[int]map[int]PRBCOut   // Result of prbc.
 	bas    map[int]*BA               // Record ba for each round.
+	baReqs map[int][]interface{}     // Record baReqs for each round.
 }
 
 func MakeConsensusModule(n, f, id int, logger *log.Logger, cs *connector.ConnectService) *ConsensusModule {
@@ -44,6 +44,7 @@ func MakeConsensusModule(n, f, id int, logger *log.Logger, cs *connector.Connect
 	cm.round = 0
 	cm.prs = make(map[int]map[int]*PRBC)
 	cm.bas = make(map[int]*BA)
+	cm.baReqs = make(map[int][]interface{})
 	return cm
 }
 
@@ -69,8 +70,6 @@ func (cm *ConsensusModule) HandleInput(input message.Input) {
 	// Input validation.
 	cm.PRBCCheck(cm.round, cm.id)
 
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
 	cm.logger.Printf("[Round:%d]: [Peer:%d] broadcast val.\n", cm.round, cm.id)
 
 	go func() {
@@ -129,31 +128,57 @@ func (cm *ConsensusModule) HandleBAInput(in message.BAInput) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle BAInput.\n", cm.round, cm.id)
 
 	cm.bas[cm.round] = MakeBA(cm.n, cm.f, cm.id, cm.round, in.EST, cm.logger, cm.cs)
+	for _, req := range cm.baReqs[cm.round] {
+		switch v := req.(type) {
+		case message.EST:
+			cm.bas[cm.round].ESTHandler(req.(message.EST))
+		case message.AUX:
+			cm.bas[cm.round].AUXHandler(req.(message.AUX))
+		case message.CONF:
+			cm.bas[cm.round].ConfHandler(req.(message.CONF))
+		default:
+			cm.logger.Printf("[Round:%d] receive unknown [%v] type in BA.\n", cm.round, v)
+		}
+	}
 }
 
+// If BA has not created, cache req.
 func (cm *ConsensusModule) HandleEST(est message.EST) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] receive est from [Sender:%d].\n", est.Round, cm.id, est.Sender)
 
-	// Wait for BA input.
-	for {
-		if _, ok := cm.bas[est.Round]; ok {
-			cm.bas[est.Round].ESTHandler(est)
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if _, ok := cm.bas[est.Round]; ok {
+		cm.bas[est.Round].ESTHandler(est)
+	} else {
+		cm.baReqs[est.Round] = append(cm.baReqs[est.Round], est)
 	}
 }
 
 func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] receive aux from [Sender:%d].\n", aux.Round, cm.id, aux.Sender)
 
-	// Wait for BA input.
-	for {
-		if _, ok := cm.bas[aux.Round]; ok {
-			cm.bas[aux.Round].AUXHandler(aux)
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if _, ok := cm.bas[aux.Round]; ok {
+		cm.bas[aux.Round].AUXHandler(aux)
+	} else {
+		cm.baReqs[aux.Round] = append(cm.baReqs[aux.Round], aux)
+	}
+}
+
+func (cm *ConsensusModule) HandleCONF(conf message.CONF) {
+	cm.logger.Printf("[Round:%d]: [Peer:%d] receive conf from [Sender:%d].\n", conf.Round, cm.id, conf.Sender)
+
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if _, ok := cm.bas[conf.Round]; ok {
+		cm.bas[conf.Round].ConfHandler(conf)
+	} else {
+		cm.baReqs[conf.Round] = append(cm.baReqs[conf.Round], conf)
 	}
 }
 
@@ -174,10 +199,16 @@ func (cm *ConsensusModule) PRBCCheck(round, proposer int) {
 	if _, ok := cm.prs[round][proposer]; !ok {
 		cm.prs[round][proposer] = MakePRBC(cm.n, cm.f, cm.id, round, proposer, cm.logger, cm.cs, cm.suite, cm.pubKey, cm.priKey)
 		// Channel monitor.
-		go func() {
-			prOut := <-cm.prs[round][proposer].done
-			cm.logger.Println(prOut)
-		}()
+		go cm.chanMonitor(round, proposer)
+	}
+}
+
+func (cm *ConsensusModule) chanMonitor(round, proposer int) {
+	prOut, ok := <-cm.prs[round][proposer].done
+	if ok {
+		cm.logger.Println(prOut)
+	} else {
+		cm.logger.Printf("[Round:%d] has been done.\n", round)
 	}
 }
 
@@ -186,3 +217,13 @@ func (cm *ConsensusModule) checkErr(err error) {
 		cm.logger.Fatal(err)
 	}
 }
+
+/*
+	Skip current round.
+	for i := 0; i < n; i++ {
+		cm.prs[round][i].lock()
+		cm.prs[round][i].skip = true
+		cm.prs[round][i].unlock()
+		close(cm.prs[round][i].done)
+	}
+*/
