@@ -144,7 +144,7 @@ func (cm *ConsensusModule) HandleBAInput(in message.BAInput) {
 
 // If BA has not created, cache req.
 func (cm *ConsensusModule) HandleEST(est message.EST) {
-	cm.logger.Printf("[Round:%d]: [Peer:%d] receive est from [Sender:%d].\n", est.Round, cm.id, est.Sender)
+	// cm.logger.Printf("[Round:%d]: [Peer:%d] receive est from [Sender:%d].\n", est.Round, cm.id, est.Sender)
 
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -157,7 +157,7 @@ func (cm *ConsensusModule) HandleEST(est message.EST) {
 }
 
 func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
-	cm.logger.Printf("[Round:%d]: [Peer:%d] receive aux from [Sender:%d].\n", aux.Round, cm.id, aux.Sender)
+	// cm.logger.Printf("[Round:%d]: [Peer:%d] receive aux from [Sender:%d].\n", aux.Round, cm.id, aux.Sender)
 
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -170,7 +170,7 @@ func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
 }
 
 func (cm *ConsensusModule) HandleCONF(conf message.CONF) {
-	cm.logger.Printf("[Round:%d]: [Peer:%d] receive conf from [Sender:%d].\n", conf.Round, cm.id, conf.Sender)
+	// cm.logger.Printf("[Round:%d]: [Peer:%d] receive conf from [Sender:%d].\n", conf.Round, cm.id, conf.Sender)
 
 	cm.mu.Lock()
 	defer cm.mu.Unlock()

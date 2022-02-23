@@ -61,18 +61,17 @@ func MakeBA(n, f, id, round, est int, logger *log.Logger, cs *connector.ConnectS
 	ba.auxSent = make(map[int]map[int]bool)
 	ba.confSent = make(map[int]bool)
 	ba.signal = make(chan eventNotify)
-	go ba.run()
+	go ba.estBC()
+	go ba.eventHandler()
 	return ba
 }
 
-func (ba *BA) run() {
+func (ba *BA) estBC() {
 	ba.mu.Lock()
-
 	ba.baCheck(ba.epoch)
 	if !ba.estSent[ba.epoch][ba.est] {
 		ba.estSent[ba.epoch][ba.est] = true
 	}
-
 	ba.mu.Unlock()
 
 	// Generate est message.
@@ -86,10 +85,11 @@ func (ba *BA) run() {
 	estMsg := message.MessageEncode(e)
 	// Broad est message.
 	ba.cs.Broadcast(estMsg)
+}
 
+func (ba *BA) eventHandler() {
 	// Event handler.
-	for {
-		v := <-ba.signal
+	for v := range ba.signal {
 		if v.event == BinChange {
 			ba.auxBroadcast(v.epoch)
 		}
@@ -109,19 +109,15 @@ func (ba *BA) auxBroadcast(epoch int) {
 		Round:  ba.round,
 		Epoch:  epoch,
 	}
-	ba.mu.Lock()
 	aux.Element = ba.binVals[ba.epoch][len(ba.binVals[ba.epoch])-1]
-	ba.mu.Unlock()
 	// Encode aux msg.
 	auxMsg := message.MessageEncode(aux)
 	// Broadcast aux msg.
+	ba.logger.Printf("[Round:%d] [Epoch:%d] broad [%d] aux values.\n", ba.round, ba.epoch, aux.Element)
 	ba.cs.Broadcast(auxMsg)
 }
 
 func (ba *BA) auxCheck(epoch int) {
-	ba.mu.Lock()
-	defer ba.mu.Unlock()
-
 	// If conf value has sent, return.
 	if ba.confSent[epoch] {
 		return
@@ -132,6 +128,9 @@ func (ba *BA) auxCheck(epoch int) {
 		Round:  ba.round,
 		Epoch:  epoch,
 	}
+
+	ba.logger.Printf("[Round:%d] [Epoch:%d] bin values = [%v] aux values = [%v].\n",
+		ba.round, ba.epoch, ba.binVals[epoch], ba.auxVals[epoch])
 
 	// If receive >= 2f+1 aux msg with 1, broadcast 1.
 	if inSlice(1, ba.binVals[epoch]) && len(ba.auxVals[epoch][1]) >= ba.n-ba.f {
@@ -150,6 +149,7 @@ func (ba *BA) auxCheck(epoch int) {
 	for _, v := range ba.binVals[epoch] {
 		count += len(ba.auxVals[epoch][v])
 	}
+
 	if count >= ba.n-ba.f {
 		conf.Val = Both
 		ba.confBroadcast(epoch, conf)
@@ -160,12 +160,12 @@ func (ba *BA) confBroadcast(epoch int, conf message.CONF) {
 	ba.confSent[epoch] = true
 	confMsg := message.MessageEncode(conf)
 	ba.logger.Printf("[Round:%d] [epoch:%d] broadcast [%t].\n", ba.round, epoch, conf.Val == Both)
-	ba.cs.Broadcast(confMsg)
+	go ba.cs.Broadcast(confMsg)
 }
 
 func (ba *BA) confCheck(epoch int) {
-	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] [Epoch:%d] bin values = [%v] conf values = [%v].\n",
+		ba.round, ba.epoch, ba.binVals[epoch], ba.confVals[epoch])
 
 	if inSlice(1, ba.binVals[epoch]) && len(ba.confVals[epoch][One]) >= ba.n-ba.f {
 		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [1] msg", ba.round, epoch)
@@ -179,9 +179,10 @@ func (ba *BA) confCheck(epoch int) {
 
 	count := 0
 	for _, v := range ba.binVals[epoch] {
-		if v == Zero {
+		if v == 0 {
 			count += len(ba.confVals[epoch][Zero])
-		} else {
+		}
+		if v == 1 {
 			count += len(ba.confVals[epoch][One])
 		}
 	}
@@ -190,7 +191,8 @@ func (ba *BA) confCheck(epoch int) {
 		count += len(ba.confVals[epoch][Both])
 	}
 
-	if count == ba.n-ba.f {
+	ba.logger.Printf("Conf counter = %d.\n", count)
+	if count >= ba.n-ba.f {
 		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [(0,1)] msg", ba.round, epoch)
 		return
 	}
@@ -230,9 +232,11 @@ func (ba *BA) ESTHandler(est message.EST) {
 	}
 
 	// Broadcast aux signal.
-	if len(ba.estVals[epoch][v]) == 2*ba.f+1 {
-		ba.binVals[epoch] = append(ba.binVals[epoch], v)
-		ba.signal <- eventNotify{event: BinChange, epoch: epoch}
+	if len(ba.estVals[epoch][v]) >= 2*ba.f+1 {
+		if !inSlice(v, ba.binVals[epoch]) {
+			ba.binVals[epoch] = append(ba.binVals[epoch], v)
+			ba.signal <- eventNotify{event: BinChange, epoch: epoch}
+		}
 	}
 }
 
@@ -252,7 +256,6 @@ func (ba *BA) AUXHandler(aux message.AUX) {
 	}
 
 	ba.auxVals[epoch][e] = append(ba.auxVals[epoch][e], sender)
-
 	ba.signal <- eventNotify{event: AuxRecv, epoch: epoch}
 }
 
@@ -271,7 +274,6 @@ func (ba *BA) ConfHandler(conf message.CONF) {
 		return
 	}
 	ba.confVals[epoch][val] = append(ba.confVals[epoch][val], sender)
-
 	ba.signal <- eventNotify{event: ConfRecv, epoch: epoch}
 }
 

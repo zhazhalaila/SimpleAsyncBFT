@@ -11,7 +11,7 @@ func TestConsensusLocalWith4Nodes(t *testing.T) {
 }
 
 func TestBAWith4Nodes(t *testing.T) {
-	testBA(t, "../localAddress.txt", 4, []int{1, 1, 0, 0})
+	testBA(t, "../localAddress.txt", 4, []int{1, 0, 1, 0})
 }
 
 func testBA(t *testing.T, fileName string, n int, ests []int) {
