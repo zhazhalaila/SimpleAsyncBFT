@@ -131,24 +131,27 @@ func (cm *ConsensusModule) HandleBAInput(in message.BAInput) {
 	cm.bas[cm.round] = MakeBA(cm.n, cm.f, cm.id, cm.round, in.EST, cm.logger, cm.cs, cm.suite, cm.pubKey, cm.priKey)
 	cm.mu.Unlock()
 
+	go func() {
+		value := <-cm.bas[cm.round].decide
+		cm.logger.Printf("[Round:%d]: [Peer:%d] get [%d] from ba.\n", cm.round, cm.id, value)
+	}()
+
 	for _, req := range cm.baReqs[cm.round] {
 		switch v := req.(type) {
 		case message.EST:
-			go cm.bas[cm.round].ESTHandler(req.(message.EST))
+			cm.bas[cm.round].ESTHandler(req.(message.EST))
 		case message.AUX:
-			go cm.bas[cm.round].AUXHandler(req.(message.AUX))
+			cm.bas[cm.round].AUXHandler(req.(message.AUX))
 		case message.CONF:
-			go cm.bas[cm.round].ConfHandler(req.(message.CONF))
+			cm.bas[cm.round].ConfHandler(req.(message.CONF))
 		default:
-			go cm.logger.Printf("[Round:%d] receive unknown [%v] type in BA.\n", cm.round, v)
+			cm.logger.Printf("[Round:%d] receive unknown [%v] type in BA.\n", cm.round, v)
 		}
 	}
 }
 
 // If BA has not created, cache req.
 func (cm *ConsensusModule) HandleEST(est message.EST) {
-	// cm.logger.Printf("[Round:%d]: [Peer:%d] receive est from [Sender:%d].\n", est.Round, cm.id, est.Sender)
-
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -160,8 +163,6 @@ func (cm *ConsensusModule) HandleEST(est message.EST) {
 }
 
 func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
-	// cm.logger.Printf("[Round:%d]: [Peer:%d] receive aux from [Sender:%d].\n", aux.Round, cm.id, aux.Sender)
-
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -173,8 +174,6 @@ func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
 }
 
 func (cm *ConsensusModule) HandleCONF(conf message.CONF) {
-	// cm.logger.Printf("[Round:%d]: [Peer:%d] receive conf from [Sender:%d].\n", conf.Round, cm.id, conf.Sender)
-
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -217,10 +216,13 @@ func (cm *ConsensusModule) PRBCCheck(round, proposer int) {
 	}
 }
 
+// PRBC channel will have two monitor. One for wait n-f prbc, one for wait pb.
+// Once monitor receive channel value, close it to notify the other monitor exit.
 func (cm *ConsensusModule) chanMonitor(round, proposer int) {
 	prOut, ok := <-cm.prs[round][proposer].done
 	if ok {
 		cm.logger.Println(prOut)
+		close(cm.prs[round][proposer].done)
 	} else {
 		cm.logger.Printf("[Round:%d] has been done.\n", round)
 	}
