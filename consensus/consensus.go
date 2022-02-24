@@ -127,17 +127,20 @@ func (cm *ConsensusModule) HandleFinish(fin message.Finish) {
 func (cm *ConsensusModule) HandleBAInput(in message.BAInput) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle BAInput.\n", cm.round, cm.id)
 
-	cm.bas[cm.round] = MakeBA(cm.n, cm.f, cm.id, cm.round, in.EST, cm.logger, cm.cs)
+	cm.mu.Lock()
+	cm.bas[cm.round] = MakeBA(cm.n, cm.f, cm.id, cm.round, in.EST, cm.logger, cm.cs, cm.suite, cm.pubKey, cm.priKey)
+	cm.mu.Unlock()
+
 	for _, req := range cm.baReqs[cm.round] {
 		switch v := req.(type) {
 		case message.EST:
-			cm.bas[cm.round].ESTHandler(req.(message.EST))
+			go cm.bas[cm.round].ESTHandler(req.(message.EST))
 		case message.AUX:
-			cm.bas[cm.round].AUXHandler(req.(message.AUX))
+			go cm.bas[cm.round].AUXHandler(req.(message.AUX))
 		case message.CONF:
-			cm.bas[cm.round].ConfHandler(req.(message.CONF))
+			go cm.bas[cm.round].ConfHandler(req.(message.CONF))
 		default:
-			cm.logger.Printf("[Round:%d] receive unknown [%v] type in BA.\n", cm.round, v)
+			go cm.logger.Printf("[Round:%d] receive unknown [%v] type in BA.\n", cm.round, v)
 		}
 	}
 }
@@ -179,6 +182,17 @@ func (cm *ConsensusModule) HandleCONF(conf message.CONF) {
 		cm.bas[conf.Round].ConfHandler(conf)
 	} else {
 		cm.baReqs[conf.Round] = append(cm.baReqs[conf.Round], conf)
+	}
+}
+
+func (cm *ConsensusModule) HandleCOIN(coin message.COIN) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if _, ok := cm.bas[coin.Round]; ok {
+		cm.bas[coin.Round].CoinHandler(coin)
+	} else {
+		cm.baReqs[coin.Round] = append(cm.baReqs[coin.Round], coin)
 	}
 }
 

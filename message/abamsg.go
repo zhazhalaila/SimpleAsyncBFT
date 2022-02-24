@@ -24,3 +24,11 @@ type CONF struct {
 	Epoch  int
 	Val    int // Val after receive n-f aux.
 }
+
+type COIN struct {
+	Sender  int
+	Round   int
+	Epoch   int
+	HashMsg []byte // Hash("Round+Epoch")
+	Share   []byte // Share(HashMsg)
+}

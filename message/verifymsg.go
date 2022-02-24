@@ -1,6 +1,8 @@
 package message
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"log"
 
 	"go.dedis.ch/kyber/v3/pairing/bn256"
@@ -8,6 +10,16 @@ import (
 	"go.dedis.ch/kyber/v3/sign/bls"
 	"go.dedis.ch/kyber/v3/sign/tbls"
 )
+
+func ConvertStructToHashBytes(s interface{}) []byte {
+	converted, err := json.Marshal(s)
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
+	convertedHash := sha256.Sum256(converted)
+	return convertedHash[:]
+}
 
 // Generate paitial share.
 func GenShare(data []byte, suite *bn256.Suite, priKey *share.PriShare) []byte {

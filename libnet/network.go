@@ -87,7 +87,7 @@ func (rn *Network) handleConn(conn net.Conn) {
 			rn.logger.Println(err)
 			break
 		}
-		fmt.Println(req)
+		// fmt.Println(req)
 		go rn.netDispatch(req)
 	}
 }
@@ -153,8 +153,8 @@ func (svc *Service) dispatch(methname string, req message.ReqMsg) {
 		ad := gob.NewDecoder(ab)
 		ad.Decode(args.Interface())
 
-		fmt.Println(args.Type())
-		fmt.Println(args)
+		// fmt.Println(args.Type())
+		// fmt.Println(args)
 
 		// call the method.
 		function := method.method.Func

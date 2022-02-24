@@ -5,6 +5,7 @@ import (
 	"SimpleAsyncBFT/consensus"
 	"SimpleAsyncBFT/libnet"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 )
@@ -17,6 +18,7 @@ func main() {
 	f := flag.Int("f", 1, "byzantine node number")
 	flag.Parse()
 
+	fmt.Println(*port)
 	// Create file to store log.
 	logPath := "../" + *path
 	logFile, err := os.OpenFile(logPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
