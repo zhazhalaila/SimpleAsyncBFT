@@ -29,6 +29,7 @@ type PRBC struct {
 	readyThreshold  int                       // Wait for this many READY to amplify READY.
 	outputThreshold int                       // Wait for this many READY to output.
 	fromLeader      int                       // Proposer's id.
+	rootHash        []byte                    // Erasure code root hash.
 	shards          map[int][]byte            // Erasure code shards.
 	ready           map[int]int               // Ready sender collect.
 	readySent       bool                      // Default false.
@@ -42,11 +43,13 @@ type PRBC struct {
 type PRBCOut struct {
 	fromLeader int
 	rbcOut     []byte
+	rootHash   []byte
 	rbcSig     []byte
 }
 
 func MakePRBC(
 	n, f, id, round, proposer int,
+	rootHash []byte,
 	logger *log.Logger,
 	cs *connector.ConnectService,
 	suite *bn256.Suite,
@@ -67,6 +70,7 @@ func MakePRBC(
 	pr.readyThreshold = f + 1
 	pr.outputThreshold = 2*f + 1
 	pr.fromLeader = proposer
+	pr.rootHash = rootHash
 	pr.shards = make(map[int][]byte)
 	pr.readySent = false
 	pr.ready = make(map[int]int)
@@ -293,6 +297,7 @@ func (pr *PRBC) outToChannel() {
 	prOut := PRBCOut{
 		fromLeader: pr.fromLeader,
 		rbcOut:     pr.rbcOut,
+		rootHash:   pr.rootHash,
 		rbcSig:     pr.signature,
 	}
 	pr.done <- prOut

@@ -102,19 +102,6 @@ func (ba *BA) epochGenesis() {
 // If ba done, this event handler will exit due to close event channel.
 func (ba *BA) eventHandler() {
 	for v := range ba.signal {
-		// if v.event == BinChange {
-		// 	go ba.auxBC(v.epoch)
-		// }
-		// if v.event == AuxRecv {
-		// 	go ba.auxCheck(v.epoch)
-		// }
-		// if v.event == ConfRecv {
-		// 	go ba.confCheck(v.epoch)
-		// }
-		// if v.event == CoinRecv {
-		// 	go ba.setNewEst(v.epoch, v.coin)
-		// }
-
 		switch v.event {
 		case BinChange:
 			go ba.auxBC(v.epoch)
@@ -125,7 +112,6 @@ func (ba *BA) eventHandler() {
 		case CoinRecv:
 			go ba.setNewEst(v.epoch, v.coin)
 		}
-
 	}
 	ba.logger.Printf("[Round:%d] [Epoch:%d] end...\n", ba.round, ba.epoch)
 }
