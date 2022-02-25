@@ -14,6 +14,7 @@ type PBReq struct {
 }
 
 type PBRes struct {
+	Proposer  int    // Proposer's id.
 	Endorser  int    // Endorser's id.
 	Round     int    // Consensus module round.
 	Epoch     int    // Run pb twice.

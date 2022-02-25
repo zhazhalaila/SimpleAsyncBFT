@@ -2,6 +2,7 @@ package bench
 
 import (
 	"SimpleAsyncBFT/message"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -55,13 +56,18 @@ func testConsensus(t *testing.T, fileName string, n int) {
 	// Client notify consensus module peers connect.
 	c.PeerConnectToPeer(n, ipAddr)
 
-	var txs []string
-	for i := 0; i < 10; i++ {
-		txs = append(txs, "Hello World.")
+	time.Sleep(2 * time.Second)
+
+	for i := 0; i < n; i++ {
+		var txs []string
+		for j := 0; j < 10; j++ {
+			txs = append(txs, strconv.Itoa(i))
+		}
+		inputBC := message.Input{
+			Txs: txs,
+		}
+		inputMsg := message.MessageEncode(inputBC)
+		c.SendMsg(c.nodes[i].Send, inputMsg)
+		time.Sleep(10 * time.Millisecond)
 	}
-	inputBC := message.Input{
-		Txs: txs,
-	}
-	inputMsg := message.MessageEncode(inputBC)
-	c.SendMsg(c.nodes[0].Send, inputMsg)
 }

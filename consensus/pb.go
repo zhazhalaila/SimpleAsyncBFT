@@ -60,19 +60,19 @@ func MakePB(n, f, id, round, epoch, proposer int,
 	return pb
 }
 
-func (pb *PB) ProofReqHandler(rp map[int]message.Proof, pr message.PBReq) {
+func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq) {
 	proofs := pr.Proofs
 
 	// For loop to check.
 	// 1. If proof has received but current proof != received proof, return.
 	// 2. If proof has not received but current proof is invalid, return.
 	for index, proof := range proofs {
-		if received, ok := rp[index]; ok {
+		if received, ok := recvProof[index]; ok {
 			if !bytes.Equal(proof.Signature, received.Signature) {
 				return
 			}
 		} else if message.SignatureVerify(proof.RootHash, proof.Signature, pb.suite, pb.pubKey) {
-			rp[index] = proof
+			recvProof[index] = proof
 		} else {
 			return
 		}
@@ -82,6 +82,7 @@ func (pb *PB) ProofReqHandler(rp map[int]message.Proof, pr message.PBReq) {
 	// Send share for proofHash to proposer.
 	// Generate pbres msg.
 	pbRes := message.PBRes{
+		Proposer:  pr.Proposer,
 		Endorser:  pb.id,
 		Round:     pb.round,
 		Epoch:     pb.epoch,
@@ -108,7 +109,7 @@ func (pb *PB) ProofResHandler(ps message.PBRes) {
 
 	pb.shares[endorser] = share
 
-	if pb.shares == nil && len(pb.shares) >= 2*pb.f+1 {
+	if pb.signature == nil && len(pb.shares) >= 2*pb.f+1 {
 		var shares [][]byte
 		for _, share := range pb.shares {
 			shares = append(shares, share)
@@ -137,6 +138,8 @@ func (pb *PB) ProofResHandler(ps message.PBRes) {
 			}()
 			// Send proofs to channel.
 			pb.outToChannel()
+		} else {
+			pb.logger.Println("Invalid signature........")
 		}
 	}
 }

@@ -15,20 +15,22 @@ import (
 )
 
 type ConsensusModule struct {
-	mu     sync.Mutex                // Prevent data race.
-	id     int                       // Peer identify.
-	n      int                       // Peers number.
-	f      int                       // Byzantine node number.
-	logger *log.Logger               // Log info.
-	cs     *connector.ConnectService // Connector manager.
-	suite  *bn256.Suite              // Suite to crypto.
-	pubKey *share.PubPoly            // Threshold signature public key.
-	priKey *share.PriShare           // Threshold signature private key.
-	round  int                       // Execute round.
-	prs    map[int]map[int]*PRBC     // Record prbc for each round.
-	prOuts map[int]map[int]PRBCOut   // Result of prbc.
-	bas    map[int]*BA               // Record ba for each round.
-	baReqs map[int][]interface{}     // Record baReqs for each round.
+	mu     sync.Mutex                    // Prevent data race.
+	id     int                           // Peer identify.
+	n      int                           // Peers number.
+	f      int                           // Byzantine node number.
+	logger *log.Logger                   // Log info.
+	cs     *connector.ConnectService     // Connector manager.
+	suite  *bn256.Suite                  // Suite to crypto.
+	pubKey *share.PubPoly                // Threshold signature public key.
+	priKey *share.PriShare               // Threshold signature private key.
+	round  int                           // Execute round.
+	prs    map[int]map[int]*PRBC         // Record prbc for each round.
+	prOuts map[int]map[int]PRBCOut       // Result of prbc.
+	proofs map[int]map[int]message.Proof // Received proof for each round.
+	pbs    map[int]map[int]map[int]*PB   // Record pb for each round, each epoch.
+	bas    map[int]*BA                   // Record ba for each round.
+	baReqs map[int][]interface{}         // Record baReqs for each round.
 }
 
 func MakeConsensusModule(n, f, id int, logger *log.Logger, cs *connector.ConnectService) *ConsensusModule {
@@ -44,6 +46,8 @@ func MakeConsensusModule(n, f, id int, logger *log.Logger, cs *connector.Connect
 	cm.round = 0
 	cm.prs = make(map[int]map[int]*PRBC)
 	cm.prOuts = make(map[int]map[int]PRBCOut)
+	cm.proofs = make(map[int]map[int]message.Proof)
+	cm.pbs = make(map[int]map[int]map[int]*PB)
 	cm.bas = make(map[int]*BA)
 	cm.baReqs = make(map[int][]interface{})
 	return cm
@@ -125,6 +129,35 @@ func (cm *ConsensusModule) HandleFinish(fin message.Finish) {
 	cm.prs[fin.Round][fin.Proposer].FinishHandler(fin)
 }
 
+func (cm *ConsensusModule) HandlePBReq(pbReq message.PBReq) {
+	cm.logger.Printf("[Round:%d] [Epoch:%d]: [Peer:%d] handle pbReq from [Leader:%d].\n",
+		pbReq.Round, pbReq.Epoch, cm.id, pbReq.Proposer)
+
+	cm.PBCheck(pbReq.Round, pbReq.Epoch, pbReq.Proposer)
+
+	cm.mu.Lock()
+	cm.pbs[pbReq.Round][pbReq.Epoch][pbReq.Proposer].ProofReqHandler(cm.proofs[pbReq.Round], pbReq)
+	cm.mu.Unlock()
+}
+
+func (cm *ConsensusModule) HandlePBRes(pbRes message.PBRes) {
+	cm.logger.Printf("[Round:%d] [Epoch:%d]: [Peer:%d] handle pbRes from [Endorser:%d].\n",
+		pbRes.Round, pbRes.Epoch, cm.id, pbRes.Endorser)
+
+	cm.PBCheck(pbRes.Round, pbRes.Epoch, pbRes.Endorser)
+
+	cm.pbs[pbRes.Round][pbRes.Epoch][pbRes.Proposer].ProofResHandler(pbRes)
+}
+
+func (cm *ConsensusModule) HandlePBDone(pd message.PBDone) {
+	cm.logger.Printf("[Round:%d] [Epoch:%d]: [Peer:%d] handle pbDone from [Leader:%d].\n",
+		pd.Round, pd.Epoch, cm.id, pd.Proposer)
+
+	cm.PBCheck(pd.Round, pd.Epoch, pd.Proposer)
+
+	cm.pbs[pd.Round][pd.Epoch][pd.Proposer].ProofDoneHandler(pd)
+}
+
 func (cm *ConsensusModule) HandleBAInput(in message.BAInput) {
 	cm.logger.Printf("[Round:%d]: [Peer:%d] handle BAInput.\n", cm.round, cm.id)
 
@@ -196,6 +229,13 @@ func (cm *ConsensusModule) HandleCOIN(coin message.COIN) {
 	}
 }
 
+func (cm *ConsensusModule) proofCheck(round int) {
+	// Check proof status. If round r proof not init, init proof for round r.
+	if _, ok := cm.proofs[round]; !ok {
+		cm.proofs[round] = make(map[int]message.Proof)
+	}
+}
+
 func (cm *ConsensusModule) PRBCCheck(round, proposer int, rootHash []byte) {
 	/*
 		Check PRBC status.
@@ -234,7 +274,7 @@ func (cm *ConsensusModule) prbcChanMonitor(round, proposer int) {
 	if ok {
 		cm.logger.Printf("[Round:%d] [Peer:%d] receive prbc done from [%d].\n", cm.round, cm.id, proposer)
 		close(cm.prs[round][proposer].done)
-		cm.waitForPRBC(round, proposer, prOut)
+		go cm.waitForPRBC(round, proposer, prOut)
 	} else {
 		cm.logger.Printf("[Round:%d] has been done.\n", round)
 	}
@@ -244,15 +284,20 @@ func (cm *ConsensusModule) waitForPRBC(round, proposer int, prOut PRBCOut) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	cm.proofCheck(round)
+
 	cm.prOuts[round][proposer] = prOut
 
-	// Wait for n-f prbc out.
+	// Wait for n-f prbc out. If prbc out not record in proofs, record it.
 	if len(cm.prOuts[round]) == 2*cm.f+1 {
 		proofs := make(map[int]message.Proof)
 		for id, prOut := range cm.prOuts[round] {
 			proofs[id] = message.Proof{
 				RootHash:  prOut.rootHash,
 				Signature: prOut.rbcSig,
+			}
+			if _, ok := cm.proofs[round][id]; !ok {
+				cm.proofs[round][id] = proofs[id]
 			}
 		}
 		// Generate pbReq msg.
@@ -266,7 +311,46 @@ func (cm *ConsensusModule) waitForPRBC(round, proposer int, prOut PRBCOut) {
 		// Encode pbReq msg.
 		pbReqMsg := message.MessageEncode(pbReq)
 		// Broadcast pbReq msg.
-		go cm.cs.Broadcast(pbReqMsg)
+		cm.logger.Printf("[Round:%d] [Epoch:%d]: [Peer:%d] broadcast pbReq.\n", cm.round, 0, cm.id)
+		cm.cs.Broadcast(pbReqMsg)
+	}
+}
+
+// Init PB for current {round, epoch, proposer.}
+func (cm *ConsensusModule) PBCheck(round, epoch, proposer int) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if _, ok := cm.pbs[round]; !ok {
+		cm.pbs[round] = make(map[int]map[int]*PB)
+	}
+
+	if _, ok := cm.pbs[round][epoch]; !ok {
+		cm.pbs[round][epoch] = make(map[int]*PB)
+	}
+
+	if _, ok := cm.pbs[round][epoch][proposer]; !ok {
+		cm.pbs[round][epoch][proposer] = MakePB(
+			cm.n,
+			cm.f,
+			cm.id,
+			round,
+			epoch,
+			proposer,
+			cm.logger,
+			cm.cs,
+			cm.suite,
+			cm.pubKey,
+			cm.priKey)
+		go cm.pbChanMonitor(round, epoch, proposer)
+	}
+}
+
+// Read from pb channel for current {round, epoch, proposer}.
+func (cm *ConsensusModule) pbChanMonitor(round, epoch, proposer int) {
+	_, ok := <-cm.pbs[round][epoch][proposer].done
+	if ok {
+		cm.logger.Printf("[Round:%d] [Epoch:%d] receive pr out from [%d] proposer.\n", round, epoch, proposer)
 	}
 }
 
