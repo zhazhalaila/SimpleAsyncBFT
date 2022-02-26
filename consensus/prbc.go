@@ -75,7 +75,6 @@ func MakePRBC(
 	pr.readySent = false
 	pr.ready = make(map[int]int)
 	pr.shares = make(map[int][]byte)
-	pr.done = make(chan PRBCOut)
 	pr.skip = false
 	return pr
 }

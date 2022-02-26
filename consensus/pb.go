@@ -5,7 +5,6 @@ import (
 	"SimpleAsyncBFT/message"
 	"bytes"
 	"log"
-	"sync"
 
 	"go.dedis.ch/kyber/v3/pairing/bn256"
 	"go.dedis.ch/kyber/v3/share"
@@ -17,7 +16,6 @@ type PBOut struct {
 }
 
 type PB struct {
-	mu         sync.Mutex
 	n          int
 	f          int
 	id         int
@@ -56,7 +54,6 @@ func MakePB(n, f, id, round, epoch, proposer int,
 	pb.priKey = priKey
 	pb.shares = make(map[int][]byte)
 	pb.proofs = make(map[int]message.Proof)
-	pb.done = make(chan PBOut)
 	return pb
 }
 
@@ -98,9 +95,6 @@ func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq)
 func (pb *PB) ProofResHandler(ps message.PBRes) {
 	endorser := ps.Endorser
 	share := ps.Share
-
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
 
 	if _, ok := pb.shares[endorser]; ok {
 		pb.logger.Printf("[Round:%d] [Epoch:%d] receive redundant proofRes msg from [%d].\n",
@@ -148,9 +142,6 @@ func (pb *PB) ProofDoneHandler(pd message.PBDone) {
 	proposer := pd.Proposer
 	proofHash := pd.ProofHash
 	signature := pd.Signature
-
-	pb.mu.Lock()
-	defer pb.mu.Unlock()
 
 	// Check proofDone send from leader.
 	if proposer != pb.fromLeader {

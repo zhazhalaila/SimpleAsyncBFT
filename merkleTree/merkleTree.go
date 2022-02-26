@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"math"
 )
 
@@ -28,7 +27,7 @@ func MakeMerkleTree(shards [][]byte) ([][]byte, error) {
 		m := append(mt[i*2], mt[i*2+1]...)
 		x := sha256.Sum256(m)
 		mt[i] = x[:]
-		fmt.Printf("Index %d compute from Left:%d Right:%d.\n", i, i*2, i*2+1)
+		// fmt.Printf("Index %d compute from Left:%d Right:%d.\n", i, i*2, i*2+1)
 	}
 
 	return mt, nil
@@ -43,7 +42,7 @@ func GetMerkleBranch(index int, mt [][]byte) [][]byte {
 		res = append(res, mt[t^1])
 		t /= 2
 	}
-	fmt.Printf("Branch = %v.\n", branch)
+	// fmt.Printf("Branch = %v.\n", branch)
 	return res
 }
 
@@ -62,7 +61,7 @@ func MerkleTreeVerify(n int, val, rootHash []byte, branch [][]byte, index int) b
 		tIndex >>= 1
 	}
 
-	fmt.Printf("tmp = %v, rootHash = %v.\n", tmp, rootHash)
+	// fmt.Printf("tmp = %v, rootHash = %v.\n", tmp, rootHash)
 
 	if bytes.Equal(tmp[:], rootHash) {
 		return true
