@@ -11,8 +11,7 @@ import (
 )
 
 type PBOut struct {
-	proposer int
-	proofs   map[int]message.Proof
+	proofs map[int]message.Proof
 }
 
 type PB struct {
@@ -31,6 +30,7 @@ type PB struct {
 	proofs     map[int]message.Proof
 	signature  []byte
 	done       chan PBOut
+	skip       bool
 }
 
 func MakePB(n, f, id, round, epoch, proposer int,
@@ -54,10 +54,15 @@ func MakePB(n, f, id, round, epoch, proposer int,
 	pb.priKey = priKey
 	pb.shares = make(map[int][]byte)
 	pb.proofs = make(map[int]message.Proof)
+	pb.skip = false
 	return pb
 }
 
 func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq) {
+	if pb.skip {
+		return
+	}
+
 	proofs := pr.Proofs
 
 	// For loop to check.
@@ -93,12 +98,17 @@ func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq)
 }
 
 func (pb *PB) ProofResHandler(ps message.PBRes) {
+	if pb.skip {
+		return
+	}
+
 	endorser := ps.Endorser
 	share := ps.Share
 
 	if _, ok := pb.shares[endorser]; ok {
 		pb.logger.Printf("[Round:%d] [Epoch:%d] receive redundant proofRes msg from [%d].\n",
 			pb.round, pb.epoch, endorser)
+		return
 	}
 
 	pb.shares[endorser] = share
@@ -139,6 +149,10 @@ func (pb *PB) ProofResHandler(ps message.PBRes) {
 }
 
 func (pb *PB) ProofDoneHandler(pd message.PBDone) {
+	if pb.skip {
+		return
+	}
+
 	proposer := pd.Proposer
 	proofHash := pd.ProofHash
 	signature := pd.Signature
@@ -161,7 +175,6 @@ func (pb *PB) ProofDoneHandler(pd message.PBDone) {
 
 func (pb *PB) outToChannel() {
 	pb.done <- PBOut{
-		proposer: pb.fromLeader,
-		proofs:   pb.proofs,
+		proofs: pb.proofs,
 	}
 }
