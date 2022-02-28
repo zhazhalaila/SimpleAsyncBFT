@@ -59,6 +59,10 @@ func testConsensus(t *testing.T, fileName string, n int) {
 	time.Sleep(2 * time.Second)
 
 	for i := 0; i < n; i++ {
+		if i == 0 {
+			continue
+		}
+
 		var txs []string
 		for j := 0; j < 10; j++ {
 			txs = append(txs, strconv.Itoa(i))

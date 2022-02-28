@@ -54,6 +54,9 @@ func (c *Client) ClientConnectPeers(n int, ipAddr []string) {
 func (c *Client) PeerConnectToPeer(n int, ipAddr []string) {
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
+			if j == 0 {
+				continue
+			}
 			peerConn := message.ConnectPeer{
 				Address: ipAddr[j],
 				PeerId:  j,

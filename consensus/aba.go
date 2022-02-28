@@ -25,6 +25,7 @@ type BA struct {
 	f             int                       // Byzantine node number.
 	id            int                       // Peer's identify.
 	round         int                       // Consensus round.
+	subround      int                       // Maybe execute once ba not enough....
 	est           int                       // Peer's adopt value.
 	epoch         int                       // BA epoch.
 	logger        *log.Logger               // Log info (global).
@@ -53,22 +54,23 @@ type eventNotify struct {
 	coin  int // Output from common coin.
 }
 
-func MakeBA(n, f, id, round, est int,
+func MakeBA(n, f, id, round, subround, est int,
 	logger *log.Logger,
 	cs *connector.ConnectService,
 	suite *bn256.Suite,
 	pubKey *share.PubPoly,
 	priKey *share.PriShare) *BA {
 	ba := &BA{
-		n:      n,
-		f:      f,
-		id:     id,
-		round:  round,
-		logger: logger,
-		cs:     cs,
-		suite:  suite,
-		pubKey: pubKey,
-		priKey: priKey,
+		n:        n,
+		f:        f,
+		id:       id,
+		round:    round,
+		subround: subround,
+		logger:   logger,
+		cs:       cs,
+		suite:    suite,
+		pubKey:   pubKey,
+		priKey:   priKey,
 	}
 	ba.est = est
 	ba.epoch = 0
@@ -113,39 +115,42 @@ func (ba *BA) eventHandler() {
 			go ba.setNewEst(v.epoch, v.coin)
 		}
 	}
-	ba.logger.Printf("[Round:%d] [Epoch:%d] end...\n", ba.round, ba.epoch)
+	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] end...\n", ba.round, ba.subround, ba.epoch)
 }
 
 func (ba *BA) estBC(epoch, est int) {
 	// Generate est message.
 	e := message.EST{
-		Sender: ba.id,
-		Round:  ba.round,
-		Epoch:  epoch,
-		BinVal: est,
+		Sender:   ba.id,
+		Round:    ba.round,
+		SubRound: ba.subround,
+		Epoch:    epoch,
+		BinVal:   est,
 	}
 	// Est message encode.
 	estMsg := message.MessageEncode(e)
 	// Broad est message.
-	ba.logger.Printf("[Round:%d] [Epoch:%d] broad [%d] est value.\n", ba.round, ba.epoch, est)
+	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] est value.\n", ba.round, ba.subround, epoch, est)
 	go ba.cs.Broadcast(estMsg)
 }
 
 func (ba *BA) auxBC(epoch int) {
 	// Generate aux msg.
 	aux := message.AUX{
-		Sender: ba.id,
-		Round:  ba.round,
-		Epoch:  epoch,
+		Sender:   ba.id,
+		Round:    ba.round,
+		SubRound: ba.subround,
+		Epoch:    epoch,
 	}
 	// Get the latest bin value in epoch.
 	ba.mu.Lock()
-	aux.Element = ba.binVals[ba.epoch][len(ba.binVals[ba.epoch])-1]
+	aux.Element = ba.binVals[epoch][len(ba.binVals[epoch])-1]
 	ba.mu.Unlock()
+
 	// Encode aux msg.
 	auxMsg := message.MessageEncode(aux)
 	// Broadcast aux msg.
-	ba.logger.Printf("[Round:%d] [Epoch:%d] broad [%d] aux values.\n", ba.round, ba.epoch, aux.Element)
+	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] aux values.\n", ba.round, ba.subround, epoch, aux.Element)
 	go ba.cs.Broadcast(auxMsg)
 }
 
@@ -159,9 +164,10 @@ func (ba *BA) auxCheck(epoch int) {
 	}
 
 	conf := message.CONF{
-		Sender: ba.id,
-		Round:  ba.round,
-		Epoch:  epoch,
+		Sender:   ba.id,
+		Round:    ba.round,
+		SubRound: ba.subround,
+		Epoch:    epoch,
 	}
 
 	// If receive >= 2f+1 aux msg with 1, broadcast 1.
@@ -188,8 +194,8 @@ func (ba *BA) auxCheck(epoch int) {
 		return
 	}
 
-	ba.logger.Printf("[Round:%d] [Epoch:%d] bin values = [%v] aux values = [%v].\n",
-		ba.round, ba.epoch, ba.binVals[epoch], ba.auxVals[epoch])
+	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] aux values = [%v].\n",
+		ba.round, ba.subround, ba.epoch, ba.binVals[epoch], ba.auxVals[epoch])
 }
 
 func (ba *BA) confBroadcast(epoch int, conf message.CONF) {
@@ -204,14 +210,14 @@ func (ba *BA) confCheck(epoch int) {
 
 	// If receive >= 2f+1 conf msg with 1, set value to 1.
 	if inSlice(1, ba.binVals[epoch]) && len(ba.confVals[epoch][1]) >= ba.n-ba.f {
-		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [1] msg", ba.round, epoch)
+		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [1] msg", ba.round, ba.subround, epoch)
 		ba.coinBC(epoch, 1)
 		return
 	}
 
 	// If receive >= 2f+1 conf msg with 0, set value to 0.
 	if inSlice(0, ba.binVals[epoch]) && len(ba.confVals[epoch][0]) >= ba.n-ba.f {
-		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [0] msg", ba.round, epoch)
+		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [0] msg", ba.round, ba.subround, epoch)
 		ba.coinBC(epoch, 0)
 		return
 	}
@@ -235,14 +241,14 @@ func (ba *BA) confCheck(epoch int) {
 	}
 
 	if count >= ba.n-ba.f {
-		ba.logger.Printf("[Round:%d] [Epoch:%d] receive n-f [(0,1)] msg", ba.round, epoch)
+		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [(0,1)] msg", ba.round, ba.subround, epoch)
 		ba.coinBC(epoch, 2)
 	} else {
 		return
 	}
 
-	ba.logger.Printf("[Round:%d] [Epoch:%d] bin values = [%v] conf values = [%v].\n",
-		ba.round, ba.epoch, ba.binVals[epoch], ba.confVals[epoch])
+	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] conf values = [%v].\n",
+		ba.round, ba.subround, epoch, ba.binVals[epoch], ba.confVals[epoch])
 }
 
 func (ba *BA) coinBC(epoch, val int) {
@@ -254,21 +260,22 @@ func (ba *BA) coinBC(epoch, val int) {
 
 	// Generate share to compute common coin.
 	go func() {
-		str := strconv.Itoa(ba.round) + "-" + strconv.Itoa(epoch)
+		str := strconv.Itoa(ba.round) + "-" + strconv.Itoa(ba.subround) + "-" + strconv.Itoa(epoch)
 		strJs := message.ConvertStructToHashBytes(str)
 		hashMsg := sha256.Sum256(strJs)
 		share := message.GenShare(hashMsg[:], ba.suite, ba.priKey)
 		// Generate coin msg.
 		coin := message.COIN{
-			Sender:  ba.id,
-			Round:   ba.round,
-			Epoch:   epoch,
-			HashMsg: hashMsg[:],
-			Share:   share,
+			Sender:   ba.id,
+			Round:    ba.round,
+			SubRound: ba.subround,
+			Epoch:    epoch,
+			HashMsg:  hashMsg[:],
+			Share:    share,
 		}
 		// Encode coin msg.
 		coinMsg := message.MessageEncode(coin)
-		ba.logger.Printf("[Round:%d] [Epoch:%d] broadcast coin msg.\n", ba.round, epoch)
+		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broadcast coin msg.\n", ba.round, ba.subround, epoch)
 		// Broadcast coin msg.
 		ba.cs.Broadcast(coinMsg)
 	}()
@@ -284,6 +291,7 @@ func (ba *BA) setNewEst(epoch, coin int) {
 		if ba.alreadyDecide == nil {
 			value := ba.values[epoch]
 			ba.alreadyDecide = &value
+			ba.logger.Printf("[Round:%d] [SubRound:%d] BA decide in [Epoch:%d].\n", ba.round, ba.subround, ba.epoch)
 			ba.decide <- value
 		} else if *ba.alreadyDecide == ba.values[epoch] {
 			ba.stop = true
@@ -327,8 +335,8 @@ func (ba *BA) ESTHandler(est message.EST) {
 
 	// If receive redundant est value from same sender, return.
 	if inSlice(sender, ba.estVals[epoch][v]) {
-		ba.logger.Printf("[Round:%d][Epoch:%d] receive redundant EST value from [Sender:%d] est values = [%v].\n",
-			ba.round, epoch, sender, ba.estVals[epoch][v])
+		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive redundant EST value from [Sender:%d] est values = [%v].\n",
+			ba.round, ba.subround, epoch, sender, ba.estVals[epoch][v])
 		return
 	}
 	ba.estVals[epoch][v] = append(ba.estVals[epoch][v], sender)
@@ -343,6 +351,7 @@ func (ba *BA) ESTHandler(est message.EST) {
 	if len(ba.estVals[epoch][v]) >= 2*ba.f+1 {
 		if !inSlice(v, ba.binVals[epoch]) {
 			ba.binVals[epoch] = append(ba.binVals[epoch], v)
+			ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] added [%d] to bin values.\n", ba.round, ba.subround, epoch, v)
 			ba.signal <- eventNotify{event: BinChange, epoch: epoch}
 		}
 	}
@@ -365,7 +374,8 @@ func (ba *BA) AUXHandler(aux message.AUX) {
 
 	// If receive redundant aux value from same sender, return.
 	if inSlice(sender, ba.auxVals[epoch][e]) {
-		ba.logger.Printf("[Round:%d][Epoch:%d] receive redundant AUX value from [Sender:%d].\n", ba.round, epoch, sender)
+		ba.logger.Printf("[Round:%d][SubRound:%d][Epoch:%d] receive redundant AUX value from [Sender:%d].\n",
+			ba.round, ba.subround, epoch, sender)
 		return
 	}
 
@@ -391,7 +401,8 @@ func (ba *BA) ConfHandler(conf message.CONF) {
 
 	// If receive redundant conf value from same sender, return.
 	if inSlice(sender, ba.confVals[epoch][val]) {
-		ba.logger.Printf("[Round:%d][Epoch:%d] receive redundant CONF value from [Sender:%d].\n", ba.round, epoch, sender)
+		ba.logger.Printf("[Round:%d][SubRound:%d][Epoch:%d] receive redundant CONF value from [Sender:%d].\n",
+			ba.round, ba.subround, epoch, sender)
 		return
 	}
 	ba.confVals[epoch][val] = append(ba.confVals[epoch][val], sender)

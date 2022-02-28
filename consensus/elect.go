@@ -67,13 +67,11 @@ func (e *Elect) ElectReqHandler(er message.ElectReq) (int, bool) {
 	}
 
 	if e.signature == nil && len(e.shares) == e.f+1 {
-		var endorsers []int
 		var shares [][]byte
-		for endorser, share := range e.shares {
+		for _, share := range e.shares {
 			shares = append(shares, share)
-			endorsers = append(endorsers, endorser)
 		}
-		e.logger.Printf("[Round:%d] [Epoch:%d] receive f+1 valid share from [%v].\n", e.round, e.epoch, endorsers)
+		e.logger.Printf("[Round:%d] [Epoch:%d] receive f+1 valid share.\n", e.round, e.epoch)
 
 		signature := message.ComputeSignature(electHash, e.suite, shares, e.pubKey, e.n, e.f+1)
 
