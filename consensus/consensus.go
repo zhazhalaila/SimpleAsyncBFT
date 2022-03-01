@@ -6,7 +6,6 @@ import (
 	merkletree "SimpleAsyncBFT/merkleTree"
 	"SimpleAsyncBFT/message"
 	"encoding/json"
-	"fmt"
 	"log"
 	"strconv"
 	"sync"
@@ -27,6 +26,7 @@ type ConsensusModule struct {
 	pubKey *share.PubPoly                // Threshold signature public key.
 	priKey *share.PriShare               // Threshold signature private key.
 	round  int                           // Execute round.
+	reqs   map[int]message.ClientRequest // Record client requests.
 	prs    map[int]map[int]*PRBC         // Record prbc for each round.
 	prOuts map[int]map[int]PRBCOut       // Result of prbc.
 	proofs map[int]map[int]message.Proof // Received proof for each round.
@@ -48,6 +48,7 @@ func MakeConsensusModule(n, f, id int, logger *log.Logger, cs *connector.Connect
 	cm.pubKey = decodekeys.DecodePubShare(cm.suite, cm.n, cm.f+1)
 	cm.priKey = decodekeys.DecodePriShare(cm.suite, cm.n, cm.f+1, cm.id)
 	cm.round = 0
+	cm.reqs = make(map[int]message.ClientRequest)
 	cm.prs = make(map[int]map[int]*PRBC)
 	cm.prOuts = make(map[int]map[int]PRBCOut)
 	cm.proofs = make(map[int]map[int]message.Proof)
@@ -80,18 +81,21 @@ func (cm *ConsensusModule) HandleInput(input message.Input) {
 
 	// Input validation.
 	cm.mu.Lock()
+	cm.reqs[cm.round] = input.ClientReq
 	cm.PRBCCheck(cm.round, cm.id, rootHash)
+	round := cm.round
+	cm.round++
 	cm.mu.Unlock()
 
-	cm.logger.Printf("[Round:%d]: [Peer:%d] broadcast val.\n", cm.round, cm.id)
+	cm.logger.Printf("[Round:%d]: [Peer:%d] broadcast val.\n", round, cm.id)
 
-	go func() {
+	go func(round int) {
 		for index := 0; index < cm.n; index++ {
 			branch := merkletree.GetMerkleBranch(index, mt)
 			// Generate val msg.
 			valBC := message.Val{
 				Proposer: cm.id,
-				Round:    cm.round,
+				Round:    round,
 				RootHash: rootHash,
 				Branch:   branch,
 				Shard:    shards[index]}
@@ -99,7 +103,7 @@ func (cm *ConsensusModule) HandleInput(input message.Input) {
 			valMsg := message.MessageEncode(valBC)
 			cm.cs.SendToPeer(index, valMsg)
 		}
-	}()
+	}(round)
 }
 
 func (cm *ConsensusModule) HandleVal(val message.Val) {
@@ -209,11 +213,13 @@ func (cm *ConsensusModule) BAInput(round, subround, leaderId, est int) {
 	cm.logger.Printf("[Round:%d] [SubRound:%d]: [Peer:%d] input [%d] to BA.\n", round, subround, cm.id, est)
 
 	cm.mu.Lock()
-	cm.BACheck(cm.round)
+	cm.BACheck(round)
+	decide := make(chan int)
 	cm.bas[round][subround] = MakeBA(cm.n, cm.f, cm.id, round, subround, est, cm.logger, cm.cs, cm.suite, cm.pubKey, cm.priKey)
+	cm.bas[round][subround].decide = decide
 	cm.mu.Unlock()
 
-	go cm.baMonitor(round, subround, leaderId)
+	go cm.baMonitor(round, subround, leaderId, decide)
 
 	for _, req := range cm.baReqs[round][subround] {
 		go func(req interface{}) {
@@ -233,8 +239,8 @@ func (cm *ConsensusModule) BAInput(round, subround, leaderId, est int) {
 	}
 }
 
-func (cm *ConsensusModule) baMonitor(round, subround, leaderId int) {
-	value := <-cm.bas[round][subround].decide
+func (cm *ConsensusModule) baMonitor(round, subround, leaderId int, decide chan int) {
+	value := <-decide
 	cm.logger.Printf("[Round:%d] [SubRound:%d]: [Peer:%d] get [%d] from ba.\n", round, subround, cm.id, value)
 	if value == 0 {
 		subround++
@@ -248,7 +254,7 @@ func (cm *ConsensusModule) roundEnd(round, subround, leaderId int) {
 	var waitPB chan PBOut
 	var proofs map[int]message.Proof
 
-	// If BA output 1, wait for pbouts for leaderId.
+	// If BA output 1, wait for pbout for leaderId.
 	cm.mu.Lock()
 	if pbOut, ok := cm.pbOuts[round][1][leaderId]; !ok {
 		waitPB = cm.pbs[round][1][leaderId].done
@@ -258,15 +264,24 @@ func (cm *ConsensusModule) roundEnd(round, subround, leaderId int) {
 	cm.mu.Unlock()
 
 	if waitPB != nil {
+		cm.logger.Printf("[Round:%d] [SubRound:%d]: [Peer:%d] not receive [%d] pbout.\n",
+			round, subround, cm.id, leaderId)
 		if pbOut, ok := <-waitPB; ok {
 			proofs = pbOut.proofs
 			close(waitPB)
+			cm.mu.Lock()
+			cm.pbOuts[round][1][leaderId] = pbOut
+			cm.mu.Unlock()
 		} else {
 			cm.mu.Lock()
 			proofs = cm.pbOuts[round][1][leaderId].proofs
 			cm.mu.Unlock()
 		}
+		cm.logger.Printf("[Round:%d] [SubRound:%d]: [Peer:%d] receive [%d] pbout after wait.\n",
+			round, subround, cm.id, leaderId)
 	}
+
+	cm.logger.Printf("[Round:%d] receive [%v] proofs.\n", round, proofs)
 
 	prbcOuts := make(map[int][]byte)
 	prbcWaits := make(map[int]chan PRBCOut)
@@ -284,23 +299,35 @@ func (cm *ConsensusModule) roundEnd(round, subround, leaderId int) {
 
 	if len(prbcWaits) > 0 {
 		for proposer, wait := range prbcWaits {
+			cm.logger.Printf("[Round:%d] [SubRound:%d]: [Peer:%d] not receive [%d] prbcOut.\n",
+				round, subround, cm.id, proposer)
 			if prOut, ok := <-wait; ok {
 				prbcOuts[proposer] = prOut.rbcOut
 				close(wait)
+				cm.mu.Lock()
+				cm.prOuts[round][proposer] = prOut
+				cm.mu.Unlock()
 			} else {
 				cm.mu.Lock()
 				prbcOuts[proposer] = cm.prOuts[round][proposer].rbcOut
 				cm.mu.Unlock()
 			}
+			cm.logger.Printf("[Round:%d] [SubRound:%d]: [Peer:%d] receive [%d] prbcOut after wait.\n",
+				round, subround, cm.id, proposer)
 		}
 	}
 
 	// Close all channel to avoid goroutine leak.
 	// Close prbc channel. If not receive prbc out, skip prbc and close prbc channel.
-	for i := 0; i < cm.n; i++ {
-		if _, ok := cm.prOuts[round][i]; !ok {
-			cm.prs[round][i].skip = true
-			close(cm.prs[round][i].done)
+	cm.mu.Lock()
+	for proposer := 0; proposer < cm.n; proposer++ {
+		if _, ok := cm.prOuts[round][proposer]; !ok {
+			if _, ok := cm.prs[round][proposer]; ok {
+				cm.prs[round][proposer].skip = true
+				close(cm.prs[round][proposer].done)
+			}
+		} else {
+			cm.logger.Printf("[Round:%d] prbc [%d] done.\n", round, proposer)
 		}
 	}
 
@@ -308,11 +335,35 @@ func (cm *ConsensusModule) roundEnd(round, subround, leaderId int) {
 	for epoch := 0; epoch < 2; epoch++ {
 		for proposer := 0; proposer < cm.n; proposer++ {
 			if _, ok := cm.pbOuts[round][epoch][proposer]; !ok {
-				cm.pbs[round][epoch][proposer].skip = true
-				close(cm.pbs[round][epoch][proposer].done)
+				if _, ok := cm.pbs[round][epoch][proposer]; ok {
+					cm.pbs[round][epoch][proposer].skip = true
+					close(cm.pbs[round][epoch][proposer].done)
+				}
+			} else {
+				cm.logger.Printf("[Round:%d] [Epoch:%d] pb [%d] done.\n", round, epoch, proposer)
 			}
 		}
 	}
+	cm.mu.Unlock()
+
+	var receivers []int
+	for receiver := range prbcOuts {
+		receivers = append(receivers, receiver)
+	}
+	cm.logger.Printf("[Round:%d] receive [%v] prbc outs.\n", round, receivers)
+
+	cliRes := message.ClientRes{
+		Round:    round,
+		Proposer: cm.id,
+		ReqCount: cm.reqs[round].RequestCount,
+	}
+
+	cm.mu.Lock()
+	clientId := cm.reqs[round].ClientId
+	cm.mu.Unlock()
+
+	cm.logger.Printf("[Round:%d] send client response to [Client:%d].\n", round, clientId)
+	cm.cs.ClientResponse(cliRes, clientId)
 }
 
 // If BA has not created, cache req.
@@ -408,14 +459,14 @@ func (cm *ConsensusModule) PRBCCheck(round, proposer int, rootHash []byte) {
 // PRBC channel will have two monitor. One for wait n-f prbc, one for wait pb.
 // Once monitor receive channel value, close it to notify the other monitor exit.
 func (cm *ConsensusModule) prbcChanMonitor(round, proposer int, done chan PRBCOut) {
-	fmt.Printf("[Round:%d]: [Peer:%d] monitor [%d] prbc.\n", round, cm.id, proposer)
+	cm.logger.Printf("[Round:%d]: [Peer:%d] monitor [%d] prbc.\n", round, cm.id, proposer)
 	prOut, ok := <-done
 	if ok {
 		cm.logger.Printf("[Round:%d] [Peer:%d] receive prbc done from [%d].\n", round, cm.id, proposer)
 		close(done)
 		go cm.waitForPRBC(round, proposer, prOut)
 	} else {
-		cm.logger.Printf("[Round:%d] has been done.\n", round)
+		cm.logger.Printf("[Round:%d] [Proposer:%d] has been done.\n", round, proposer)
 	}
 }
 
@@ -487,7 +538,10 @@ func (cm *ConsensusModule) pbChanMonitor(round, epoch, proposer int, done chan P
 	pbOut, ok := <-done
 	if ok {
 		cm.logger.Printf("[Round:%d] [Epoch:%d] receive pr out from [%d] proposer.\n", round, epoch, proposer)
+		close(done)
 		go cm.waitForPB(round, epoch, proposer, pbOut)
+	} else {
+		cm.logger.Printf("[Round:%d] [Epoch:%d] [Proposer:%d] has been done.\n", round, epoch, proposer)
 	}
 }
 
@@ -574,13 +628,3 @@ func (cm *ConsensusModule) checkErr(err error) {
 		cm.logger.Fatal(err)
 	}
 }
-
-/*
-	Skip current round.
-	for i := 0; i < n; i++ {
-		cm.prs[round][i].lock()
-		cm.prs[round][i].skip = true
-		cm.prs[round][i].unlock()
-		close(cm.prs[round][i].done)
-	}
-*/

@@ -27,9 +27,52 @@ func MakeConnectService(logger *log.Logger, network *libnet.Network) *ConnectSer
 	cs.logger = logger
 	cs.peers = make(map[int]net.Conn)
 	cs.clients = make(map[int]string)
-	cs.delayMin = 5
-	cs.delayMax = 10
+	cs.delayMin = 50
+	cs.delayMax = 100
 	return cs
+}
+
+func (cs *ConnectService) SetClient(msg message.SetClient) {
+	cs.mu.Lock()
+	if _, ok := cs.clients[msg.ClientId]; !ok {
+		cs.clients[msg.ClientId] = msg.Address
+	} else {
+		cs.logger.Printf("[%d] client has been connected.\n", msg.ClientId)
+	}
+	cs.mu.Unlock()
+}
+
+func (cs *ConnectService) ClientResponse(msg message.ClientRes, clientId int) {
+	var addr string
+
+	cs.mu.Lock()
+	if clientAddr, ok := cs.clients[clientId]; ok {
+		addr = clientAddr
+	} else {
+		cs.mu.Unlock()
+		cs.logger.Printf("[%d] client has been unconnected.\n", clientId)
+		return
+	}
+	cs.mu.Unlock()
+
+	// Encode clientres msg.
+	msgJs, err := json.Marshal(msg)
+	if err != nil {
+		cs.logger.Println(err)
+		return
+	}
+
+	// Write clientres msg. If err, delete client.
+	clientConn := cs.network.GetConn(addr)
+	if clientConn != nil {
+		_, err := clientConn.Write(msgJs)
+		if err != nil {
+			cs.mu.Lock()
+			delete(cs.clients, clientId)
+			cs.mu.Unlock()
+			cs.logger.Printf("Write to closed [%d] client.\n", clientId)
+		}
+	}
 }
 
 // Connect to other peer.
@@ -80,7 +123,11 @@ func (cs *ConnectService) SendToPeer(peerId int, msg message.ReqMsg) {
 
 // Broadcast message to all peers.
 func (cs *ConnectService) Broadcast(msg message.ReqMsg) {
-	for peerId := range cs.peers {
+	cs.mu.Lock()
+	peers := cs.peers
+	cs.mu.Unlock()
+
+	for peerId := range peers {
 		go func(peerId int) {
 			cs.SendToPeer(peerId, msg)
 		}(peerId)

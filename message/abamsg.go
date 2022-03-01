@@ -1,10 +1,5 @@
 package message
 
-type BAInput struct {
-	EST      int
-	SubRound int
-}
-
 type EST struct {
 	Sender   int // Current sender.
 	Round    int // Consensus round.

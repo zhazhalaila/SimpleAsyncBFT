@@ -83,7 +83,6 @@ func MakeBA(n, f, id, round, subround, est int,
 	ba.confSent = make(map[int]bool)
 	ba.coin = make(map[int]map[int][]byte)
 	ba.signal = make(chan eventNotify)
-	ba.decide = make(chan int)
 	ba.values = make(map[int]int)
 	ba.alreadyDecide = nil
 	ba.stop = false

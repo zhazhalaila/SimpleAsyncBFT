@@ -1,22 +1,52 @@
 package bench
 
 import (
-	"SimpleAsyncBFT/message"
-	"strconv"
+	"log"
 	"testing"
 	"time"
 )
 
 func TestConsensusLocalWith4Nodes(t *testing.T) {
-	testConsensus(t, "../localAddress.txt", 4)
+	testConsensus(t, "../localAddress.txt", 4, 1, -1)
 }
 
-func TestBAWith4Nodes(t *testing.T) {
-	testBA(t, "../localAddress.txt", 4, []int{1, 0, 1, 0})
+func TestConsensusLocalWith1ByzantineNodes(t *testing.T) {
+	testConsensus(t, "../localAddress.txt", 4, 1, 0)
 }
 
-func testBA(t *testing.T, fileName string, n int, ests []int) {
-	c := NewClient()
+// func TestBAWith4Nodes(t *testing.T) {
+// 	testBA(t, "../localAddress.txt", 4, []int{1, 0, 1, 0})
+// }
+
+// func testBA(t *testing.T, fileName string, n int, ests []int) {
+// 	c := NewClient()
+
+// 	// Read ip address from file.
+// 	ipAddr, err := c.ReadAddress(fileName, n)
+// 	if err != nil {
+// 		t.Errorf(err.Error())
+// 	}
+
+// 	// Client connect consensus module cluster.
+// 	c.ClientConnectPeers(n, ipAddr)
+// 	// Client notify consensus module peers connect.
+// 	c.PeerConnectToPeer(n, ipAddr)
+
+// 	time.Sleep(2 * time.Second)
+
+// 	// BA Input.
+// 	for i := 0; i < n; i++ {
+// 		baInput := message.BAInput{
+// 			EST: ests[i],
+// 		}
+// 		baInputMsg := message.MessageEncode(baInput)
+// 		c.SendMsg(c.nodes[i].Send, baInputMsg)
+// 		time.Sleep(10 * time.Millisecond)
+// 	}
+// }
+
+func testConsensus(t *testing.T, fileName string, n int, f, byzantine int) {
+	c := NewClient(n, f)
 
 	// Read ip address from file.
 	ipAddr, err := c.ReadAddress(fileName, n)
@@ -25,53 +55,18 @@ func testBA(t *testing.T, fileName string, n int, ests []int) {
 	}
 
 	// Client connect consensus module cluster.
-	c.ClientConnectPeers(n, ipAddr)
+	c.ClientConnectPeers(n, 0, ipAddr)
+
 	// Client notify consensus module peers connect.
-	c.PeerConnectToPeer(n, ipAddr)
+	c.PeerConnectToPeer(n, byzantine, ipAddr)
 
-	time.Sleep(2 * time.Second)
-
-	// BA Input.
-	for i := 0; i < n; i++ {
-		baInput := message.BAInput{
-			EST: ests[i],
-		}
-		baInputMsg := message.MessageEncode(baInput)
-		c.SendMsg(c.nodes[i].Send, baInputMsg)
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func testConsensus(t *testing.T, fileName string, n int) {
-	c := NewClient()
-
-	// Read ip address from file.
-	ipAddr, err := c.ReadAddress(fileName, n)
-	if err != nil {
-		t.Errorf(err.Error())
-	}
-
-	// Client connect consensus module cluster.
-	c.ClientConnectPeers(n, ipAddr)
-	// Client notify consensus module peers connect.
-	c.PeerConnectToPeer(n, ipAddr)
-
-	time.Sleep(2 * time.Second)
-
-	for i := 0; i < n; i++ {
-		if i == 0 {
-			continue
-		}
-
-		var txs []string
-		for j := 0; j < 10; j++ {
-			txs = append(txs, strconv.Itoa(i))
-		}
-		inputBC := message.Input{
-			Txs: txs,
-		}
-		inputMsg := message.MessageEncode(inputBC)
-		c.SendMsg(c.nodes[i].Send, inputMsg)
-		time.Sleep(10 * time.Millisecond)
+	// Client send requests.
+	for i := 0; i < 10; i++ {
+		req := &request{}
+		req.done = make(chan bool)
+		c.ClientSendRequest(i, byzantine, req)
+		<-req.done
+		req.endTime = time.Since(req.startTime)
+		log.Println(req.endTime)
 	}
 }

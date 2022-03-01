@@ -5,7 +5,6 @@ import (
 	merkletree "SimpleAsyncBFT/merkleTree"
 	"SimpleAsyncBFT/message"
 	"log"
-	"sync"
 
 	"github.com/klauspost/reedsolomon"
 	"go.dedis.ch/kyber/v3/pairing/bn256"
@@ -14,7 +13,7 @@ import (
 
 // If consensus module decide to skip current round, prbc will not execute.
 type PRBC struct {
-	mu              sync.Mutex                // Prevent data race.
+	// mu              sync.Mutex                // Prevent data race.
 	n               int                       // Peers number.
 	f               int                       // Byzantine peers number.
 	id              int                       // Peer's identify.
@@ -109,8 +108,8 @@ func (pr *PRBC) EchoHandler(echoReq message.Echo) {
 	branch := echoReq.Branch
 	shard := echoReq.Shard
 
-	pr.mu.Lock()
-	defer pr.mu.Unlock()
+	// pr.mu.Lock()
+	// defer pr.mu.Unlock()
 
 	if pr.skip {
 		return
@@ -159,8 +158,8 @@ func (pr *PRBC) ReadyHandler(readyReq message.Ready) {
 	sender := readyReq.Sender
 	rootHash := readyReq.RootHash
 
-	pr.mu.Lock()
-	defer pr.mu.Unlock()
+	// pr.mu.Lock()
+	// defer pr.mu.Unlock()
 
 	if pr.skip {
 		return
@@ -205,8 +204,8 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 	share := proofReq.Share
 	rootHash := proofReq.RootHash
 
-	pr.mu.Lock()
-	defer pr.mu.Unlock()
+	// pr.mu.Lock()
+	// defer pr.mu.Unlock()
 
 	if pr.skip {
 		return
@@ -243,6 +242,7 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 						fin := message.Finish{
 							Proposer:  proofReq.Proposer,
 							LeaderId:  pr.id,
+							Round:     pr.round,
 							RootHash:  rootHash,
 							Signature: pr.signature,
 						}
@@ -257,7 +257,8 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 						}
 					}()
 					// This goroutine will not release lock, until consensus module receive data from channel.
-					pr.outToChannel()
+					pr.logger.Printf("[Round:%d] [Leader:%d] send back to channel.\n", pr.round, pr.id)
+					go pr.outToChannel()
 				} else {
 					pr.logger.Printf("[Round:%d] combine invalid signature.\n", pr.round)
 				}
@@ -271,8 +272,8 @@ func (pr *PRBC) FinishHandler(finReq message.Finish) {
 	rootHash := finReq.RootHash
 	signature := finReq.Signature
 
-	pr.mu.Lock()
-	defer pr.mu.Unlock()
+	// pr.mu.Lock()
+	// defer pr.mu.Unlock()
 
 	if pr.skip {
 		return
@@ -286,7 +287,7 @@ func (pr *PRBC) FinishHandler(finReq message.Finish) {
 				pr.logger.Printf("[Round:%d] receive valid signature from [Leader:%d].\n", pr.round, leader)
 				pr.signature = signature
 				// This goroutine will not release lock, until consensus module receive data from channel.
-				pr.outToChannel()
+				go pr.outToChannel()
 			}
 		}
 	}

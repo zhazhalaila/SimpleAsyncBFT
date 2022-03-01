@@ -96,15 +96,15 @@ func MessageEncode(msg interface{}) ReqMsg {
 		if err != nil {
 			log.Fatal(err)
 		}
-	case BAInput:
-		svcMeth = "ConsensusModule.HandleBAInput"
-		err := enc.Encode(msg.(BAInput))
-		if err != nil {
-			log.Fatal(err)
-		}
 	case ConnectPeer:
 		svcMeth = "ConnectService.ConnectOtherPeer"
 		err := enc.Encode(msg.(ConnectPeer))
+		if err != nil {
+			log.Fatal(err)
+		}
+	case SetClient:
+		svcMeth = "ConnectService.SetClient"
+		err := enc.Encode(msg.(SetClient))
 		if err != nil {
 			log.Fatal(err)
 		}

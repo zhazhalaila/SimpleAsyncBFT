@@ -62,6 +62,9 @@ func (rn *Network) Start() {
 }
 
 func (rn *Network) GetConn(remoteAddr string) net.Conn {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+
 	if conn, ok := rn.conns[remoteAddr]; ok {
 		return conn
 	}
@@ -71,7 +74,9 @@ func (rn *Network) GetConn(remoteAddr string) net.Conn {
 func (rn *Network) handleConn(conn net.Conn) {
 	defer func() {
 		rn.logger.Printf("Remote machine [%s] close connection.\n", conn.RemoteAddr().String())
+		rn.mu.Lock()
 		delete(rn.conns, conn.RemoteAddr().String())
+		rn.mu.Unlock()
 		conn.Close()
 	}()
 

@@ -1,7 +1,13 @@
 package message
 
+type ClientRequest struct {
+	ClientId     int
+	RequestCount int
+}
+
 type Input struct {
-	Txs []string
+	Txs       []string
+	ClientReq ClientRequest
 }
 
 type ReqMsg struct {
