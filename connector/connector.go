@@ -27,8 +27,8 @@ func MakeConnectService(logger *log.Logger, network *libnet.Network) *ConnectSer
 	cs.logger = logger
 	cs.peers = make(map[int]net.Conn)
 	cs.clients = make(map[int]string)
-	cs.delayMin = 50
-	cs.delayMax = 100
+	cs.delayMin = 10
+	cs.delayMax = 20
 	return cs
 }
 

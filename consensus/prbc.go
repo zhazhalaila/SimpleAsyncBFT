@@ -5,6 +5,7 @@ import (
 	merkletree "SimpleAsyncBFT/merkleTree"
 	"SimpleAsyncBFT/message"
 	"log"
+	"sync"
 
 	"github.com/klauspost/reedsolomon"
 	"go.dedis.ch/kyber/v3/pairing/bn256"
@@ -13,7 +14,7 @@ import (
 
 // If consensus module decide to skip current round, prbc will not execute.
 type PRBC struct {
-	// mu              sync.Mutex                // Prevent data race.
+	mu              sync.Mutex                // Prevent data race.
 	n               int                       // Peers number.
 	f               int                       // Byzantine peers number.
 	id              int                       // Peer's identify.
@@ -40,10 +41,9 @@ type PRBC struct {
 }
 
 type PRBCOut struct {
-	fromLeader int
-	rbcOut     []byte
-	rootHash   []byte
-	rbcSig     []byte
+	rbcOut   []byte
+	rootHash []byte
+	rbcSig   []byte
 }
 
 func MakePRBC(
@@ -96,7 +96,7 @@ func (pr *PRBC) ValHandler(valReq message.Val) {
 		echoMsg := message.MessageEncode(echoBC)
 		// Broadcast reqmsg.
 		go func() {
-			pr.logger.Printf("[Round:%d] prbc [%d] broadcast echo msg.\n", pr.round, pr.id)
+			// pr.logger.Printf("[Round:%d] prbc [%d] broadcast echo msg.\n", pr.round, pr.id)
 			pr.cs.Broadcast(echoMsg)
 		}()
 	}
@@ -141,7 +141,7 @@ func (pr *PRBC) EchoHandler(echoReq message.Echo) {
 		readyMsg := message.MessageEncode(readyBC)
 		// Broadcast reqmsg.
 		go func() {
-			pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", pr.round, pr.id)
+			// pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", pr.round, pr.id)
 			pr.cs.Broadcast(readyMsg)
 		}()
 	}
@@ -149,7 +149,7 @@ func (pr *PRBC) EchoHandler(echoReq message.Echo) {
 	if len(pr.ready) >= pr.outputThreshold && len(pr.shards) >= pr.k && pr.rbcOut == nil {
 		pr.rbcOut = pr.decode()
 		go func() {
-			pr.proofSend(rootHash)
+			pr.shareSend(rootHash)
 		}()
 	}
 }
@@ -185,7 +185,7 @@ func (pr *PRBC) ReadyHandler(readyReq message.Ready) {
 		readyMsg := message.MessageEncode(readyBC)
 		// Broadcast reqmsg.
 		go func() {
-			pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", pr.round, pr.id)
+			// pr.logger.Printf("[Round:%d] prbc [%d] broadcast ready msg.\n", pr.round, pr.id)
 			pr.cs.Broadcast(readyMsg)
 		}()
 	}
@@ -193,7 +193,7 @@ func (pr *PRBC) ReadyHandler(readyReq message.Ready) {
 	if len(pr.ready) >= pr.outputThreshold && len(pr.shards) >= pr.k && pr.rbcOut == nil {
 		pr.rbcOut = pr.decode()
 		go func() {
-			pr.proofSend(rootHash)
+			pr.shareSend(rootHash)
 		}()
 	}
 }
@@ -204,106 +204,104 @@ func (pr *PRBC) ProofHandler(proofReq message.RBCProof) {
 	share := proofReq.Share
 	rootHash := proofReq.RootHash
 
-	// pr.mu.Lock()
-	// defer pr.mu.Unlock()
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
 
 	if pr.skip {
 		return
 	}
 
-	// 1. Check peer identify.
-	// 2. If receive >= 2f+1 valid shares, pass.
-	// 3. If receive invalid shares, pass.
-	// 4. If receive 2f+1 valid shares, comput signature and broadcast it.
-	if pr.id == pr.fromLeader {
-		if pr.signature == nil {
-			if _, ok := pr.shares[endorser]; ok {
-				pr.logger.Printf("[Round:%d] receive Redundant Proof from [Endorser:%d].\n", pr.round, endorser)
-			} else {
-				if message.ShareVerify(rootHash, share, pr.suite, pr.pubKey) {
-					pr.shares[endorser] = share
-				} else {
-					pr.logger.Printf("[Round:%d] receive invalid Proof from [Endorser:%d].\n", pr.round, endorser)
-				}
-			}
-			if len(pr.shares) >= 2*pr.f+1 {
-				pr.logger.Printf("[Round:%d] [Leader:%d] receive enough Proof.\n", pr.round, pr.id)
-				var shares [][]byte
-				for _, share := range pr.shares {
-					shares = append(shares, share)
-				}
-				signature := message.ComputeSignature(rootHash, pr.suite, shares, pr.pubKey, pr.n, pr.f+1)
-
-				if message.SignatureVerify(rootHash, signature, pr.suite, pr.pubKey) {
-					pr.signature = signature
-					// Create a new goroutine to broadcast.
-					go func() {
-						// Generate finish msg.
-						fin := message.Finish{
-							Proposer:  proofReq.Proposer,
-							LeaderId:  pr.id,
-							Round:     pr.round,
-							RootHash:  rootHash,
-							Signature: pr.signature,
-						}
-						// Encode finish msg.
-						finMsg := message.MessageEncode(fin)
-						// Broadcast finish msg except itself.
-						pr.logger.Printf("[Round:%d] [Leader:%d] broadcast signature.\n", pr.round, pr.id)
-						for i := 0; i < pr.n; i++ {
-							if i != pr.id {
-								pr.cs.SendToPeer(i, finMsg)
-							}
-						}
-					}()
-					// This goroutine will not release lock, until consensus module receive data from channel.
-					pr.logger.Printf("[Round:%d] [Leader:%d] send back to channel.\n", pr.round, pr.id)
-					go pr.outToChannel()
-				} else {
-					pr.logger.Printf("[Round:%d] combine invalid signature.\n", pr.round)
-				}
-			}
-		}
+	// Check peer identify.
+	if pr.id != pr.fromLeader {
+		return
 	}
+
+	// if receive redundant share, return.
+	if _, ok := pr.shares[endorser]; ok {
+		pr.logger.Printf("[Round:%d] receive Redundant Proof from [Endorser:%d].\n", pr.round, endorser)
+		return
+	}
+
+	// Create a goroutine to validation share to avoid holding lock for long periods of time.
+	go func() {
+		// If share is valid, add it to pr.shares.
+		if message.ShareVerify(rootHash, share, pr.suite, pr.pubKey) {
+			pr.mu.Lock()
+			pr.shares[endorser] = share
+			pr.mu.Unlock()
+		} else {
+			pr.logger.Printf("[Round:%d] receive invalid Proof from [Endorser:%d].\n", pr.round, endorser)
+			return
+		}
+
+		// If receive 2f+1 shares, compute signature and broadcast.
+		pr.mu.Lock()
+		if len(pr.shares) == 2*pr.f+1 {
+			// pr.logger.Printf("[Round:%d] [Leader:%d] receive enough Proof.\n", pr.round, pr.id)
+			var shares [][]byte
+			for _, share := range pr.shares {
+				shares = append(shares, share)
+			}
+			pr.mu.Unlock()
+			pr.proofSend(proofReq.Proposer, rootHash, shares)
+		} else {
+			pr.mu.Unlock()
+		}
+	}()
 }
 
 func (pr *PRBC) FinishHandler(finReq message.Finish) {
-	leader := finReq.LeaderId
+	proposer := finReq.Proposer
 	rootHash := finReq.RootHash
 	signature := finReq.Signature
 
-	// pr.mu.Lock()
-	// defer pr.mu.Unlock()
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
 
 	if pr.skip {
 		return
 	}
 
-	if leader == pr.fromLeader {
-		if pr.signature != nil {
-			pr.logger.Printf("[Round:%d] receive redundant Finish msg from [Leader:%d].\n", pr.round, leader)
-		} else {
-			if message.SignatureVerify(rootHash, signature, pr.suite, pr.pubKey) {
-				pr.logger.Printf("[Round:%d] receive valid signature from [Leader:%d].\n", pr.round, leader)
-				pr.signature = signature
-				// This goroutine will not release lock, until consensus module receive data from channel.
-				go pr.outToChannel()
-			}
-		}
+	if proposer != pr.fromLeader {
+		return
 	}
+
+	if pr.signature != nil {
+		pr.logger.Printf("[Round:%d] receive redundant Finish msg from [Leader:%d].\n", pr.round, proposer)
+		return
+	}
+
+	go func() {
+		if message.SignatureVerify(rootHash, signature, pr.suite, pr.pubKey) {
+			pr.mu.Lock()
+			pr.signature = signature
+			pr.mu.Unlock()
+			pr.outToChannel()
+		}
+	}()
+}
+
+func (pr *PRBC) Skip() {
+	pr.mu.Lock()
+	pr.skip = true
+	pr.mu.Unlock()
 }
 
 func (pr *PRBC) outToChannel() {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
 	prOut := PRBCOut{
-		fromLeader: pr.fromLeader,
-		rbcOut:     pr.rbcOut,
-		rootHash:   pr.rootHash,
-		rbcSig:     pr.signature,
+		rbcOut:   pr.rbcOut,
+		rootHash: pr.rootHash,
+		rbcSig:   pr.signature,
 	}
+
+	pr.logger.Printf("[Round:%d] [PRBC:%d] out to channel.\n", pr.round, pr.fromLeader)
 	pr.done <- prOut
 }
 
-func (pr *PRBC) proofSend(rootHash []byte) {
+func (pr *PRBC) shareSend(rootHash []byte) {
 	// Generate rbc proof.
 	rbcProof := message.RBCProof{
 		Proposer: pr.fromLeader,
@@ -315,8 +313,36 @@ func (pr *PRBC) proofSend(rootHash []byte) {
 	// Encode rbc proof.
 	rpMsg := message.MessageEncode(rbcProof)
 	// Send rbc proof.
-	pr.logger.Printf("[Round:%d] [Peer:%d] send proof to [Leader:%d].\n", pr.round, pr.id, pr.fromLeader)
 	pr.cs.SendToPeer(pr.fromLeader, rpMsg)
+}
+
+func (pr *PRBC) proofSend(proposer int, rootHash []byte, shares [][]byte) {
+	signature := message.ComputeSignature(rootHash, pr.suite, shares, pr.pubKey, pr.n, pr.f+1)
+
+	if message.SignatureVerify(rootHash, signature, pr.suite, pr.pubKey) {
+		pr.mu.Lock()
+		pr.signature = signature
+		pr.mu.Unlock()
+		pr.outToChannel()
+		// Create a new goroutine to broadcast.
+		go func(signature []byte) {
+			// Generate finish msg.
+			fin := message.Finish{
+				Proposer:  proposer,
+				Round:     pr.round,
+				RootHash:  rootHash,
+				Signature: signature,
+			}
+			// Encode finish msg.
+			finMsg := message.MessageEncode(fin)
+			// Broadcast finish msg except itself.
+			for i := 0; i < pr.n; i++ {
+				if i != pr.id {
+					pr.cs.SendToPeer(i, finMsg)
+				}
+			}
+		}(signature)
+	}
 }
 
 func (pr *PRBC) decode() []byte {
@@ -325,7 +351,7 @@ func (pr *PRBC) decode() []byte {
 		decShards[i] = shard
 	}
 	// Erasure code decode shema.
-	dec, err := reedsolomon.New(pr.f+1, 2*pr.f)
+	dec, err := reedsolomon.New(pr.f+1, pr.n-(pr.f+1))
 	pr.checkErr(err)
 
 	err = dec.Reconstruct(decShards)

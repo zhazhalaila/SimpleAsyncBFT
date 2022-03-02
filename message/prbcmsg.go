@@ -34,7 +34,6 @@ type RBCProof struct {
 
 type Finish struct {
 	Proposer  int
-	LeaderId  int // Proposer's id.
 	Round     int
 	Signature []byte // Signature.
 	RootHash  []byte

@@ -129,7 +129,7 @@ func (ba *BA) estBC(epoch, est int) {
 	// Est message encode.
 	estMsg := message.MessageEncode(e)
 	// Broad est message.
-	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] est value.\n", ba.round, ba.subround, epoch, est)
+	// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] est value.\n", ba.round, ba.subround, epoch, est)
 	go ba.cs.Broadcast(estMsg)
 }
 
@@ -149,7 +149,7 @@ func (ba *BA) auxBC(epoch int) {
 	// Encode aux msg.
 	auxMsg := message.MessageEncode(aux)
 	// Broadcast aux msg.
-	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] aux values.\n", ba.round, ba.subround, epoch, aux.Element)
+	// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] aux values.\n", ba.round, ba.subround, epoch, aux.Element)
 	go ba.cs.Broadcast(auxMsg)
 }
 
@@ -193,8 +193,8 @@ func (ba *BA) auxCheck(epoch int) {
 		return
 	}
 
-	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] aux values = [%v].\n",
-		ba.round, ba.subround, ba.epoch, ba.binVals[epoch], ba.auxVals[epoch])
+	// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] aux values = [%v].\n",
+	// 	ba.round, ba.subround, ba.epoch, ba.binVals[epoch], ba.auxVals[epoch])
 }
 
 func (ba *BA) confBroadcast(epoch int, conf message.CONF) {
@@ -274,7 +274,7 @@ func (ba *BA) coinBC(epoch, val int) {
 		}
 		// Encode coin msg.
 		coinMsg := message.MessageEncode(coin)
-		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broadcast coin msg.\n", ba.round, ba.subround, epoch)
+		// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broadcast coin msg.\n", ba.round, ba.subround, epoch)
 		// Broadcast coin msg.
 		ba.cs.Broadcast(coinMsg)
 	}()
@@ -429,8 +429,9 @@ func (ba *BA) CoinHandler(coin message.COIN) {
 		return
 	}
 
-	if _, ok := ba.coin[epoch][sender]; !ok {
-		ba.coin[epoch][sender] = share
+	// If receive redundant coin msg, return.
+	if _, ok := ba.coin[epoch][sender]; ok {
+		return
 	}
 
 	// If receive f+1 valid share, return.
@@ -438,16 +439,21 @@ func (ba *BA) CoinHandler(coin message.COIN) {
 		return
 	}
 
+	ba.coin[epoch][sender] = share
+
+	// If receive f+1 valid share, create a new goroutine to compute signature and broadcast.
 	if len(ba.coin[epoch]) == ba.f+1 {
 		var shares [][]byte
 		for _, share := range ba.coin[epoch] {
 			shares = append(shares, share)
 		}
-		signature := message.ComputeSignature(hashMsg, ba.suite, shares, ba.pubKey, ba.n, ba.f+1)
-		if message.SignatureVerify(hashMsg, signature, ba.suite, ba.pubKey) {
-			coinHash := sha256.Sum256(signature)
-			ba.signal <- eventNotify{event: CoinRecv, epoch: epoch, coin: int(coinHash[0]) % 2}
-		}
+		go func() {
+			signature := message.ComputeSignature(hashMsg, ba.suite, shares, ba.pubKey, ba.n, ba.f+1)
+			if message.SignatureVerify(hashMsg, signature, ba.suite, ba.pubKey) {
+				coinHash := sha256.Sum256(signature)
+				ba.signal <- eventNotify{event: CoinRecv, epoch: epoch, coin: int(coinHash[0]) % 2}
+			}
+		}()
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"SimpleAsyncBFT/message"
 	"bytes"
 	"log"
+	"sync"
 
 	"go.dedis.ch/kyber/v3/pairing/bn256"
 	"go.dedis.ch/kyber/v3/share"
@@ -15,6 +16,7 @@ type PBOut struct {
 }
 
 type PB struct {
+	mu         sync.Mutex
 	n          int
 	f          int
 	id         int
@@ -80,6 +82,9 @@ func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq)
 		}
 	}
 
+	/*
+	 */
+
 	pb.proofs = proofs
 	// Send share for proofHash to proposer.
 	// Generate pbres msg.
@@ -98,6 +103,9 @@ func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq)
 }
 
 func (pb *PB) ProofResHandler(ps message.PBRes) {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
 	if pb.skip {
 		return
 	}
@@ -111,44 +119,58 @@ func (pb *PB) ProofResHandler(ps message.PBRes) {
 		return
 	}
 
-	pb.shares[endorser] = share
-
-	if pb.signature == nil && len(pb.shares) >= 2*pb.f+1 {
-		var shares [][]byte
-		for _, share := range pb.shares {
-			shares = append(shares, share)
-		}
-		signature := message.ComputeSignature(ps.ProofHash, pb.suite, shares, pb.pubKey, pb.n, pb.f+1)
-
-		if message.SignatureVerify(ps.ProofHash, signature, pb.suite, pb.pubKey) {
-			pb.signature = signature
-			// Generate pb done msg.
-			pbDone := message.PBDone{
-				Proposer:  pb.id,
-				Round:     pb.round,
-				Epoch:     pb.epoch,
-				ProofHash: ps.ProofHash,
-				Signature: signature,
-			}
-			// Encode pb done msg.
-			pbDoneMsg := message.MessageEncode(pbDone)
-			// Broadcast pb done msg except itself.
-			go func() {
-				for i := 0; i < pb.n; i++ {
-					if i != pb.id {
-						pb.cs.SendToPeer(i, pbDoneMsg)
-					}
-				}
-			}()
-			// Send proofs to channel.
-			pb.outToChannel()
+	// Create a goroutine to compute signature to avoid holding lock for a long time.
+	go func() {
+		if !message.ShareVerify(ps.ProofHash, ps.Share, pb.suite, pb.pubKey) {
+			return
 		} else {
-			pb.logger.Println("Invalid signature........")
+			pb.mu.Lock()
+			pb.shares[endorser] = share
+			pb.mu.Unlock()
 		}
-	}
+
+		pb.mu.Lock()
+		if len(pb.shares) == 2*pb.f+1 {
+			var shares [][]byte
+			for _, share := range pb.shares {
+				shares = append(shares, share)
+			}
+			pb.mu.Unlock()
+			signature := message.ComputeSignature(ps.ProofHash, pb.suite, shares, pb.pubKey, pb.n, pb.f+1)
+			if message.SignatureVerify(ps.ProofHash, signature, pb.suite, pb.pubKey) {
+				pb.mu.Lock()
+				pb.signature = signature
+				pb.mu.Unlock()
+				// Generate pb done msg.
+				pbDone := message.PBDone{
+					Proposer:  pb.id,
+					Round:     pb.round,
+					Epoch:     pb.epoch,
+					ProofHash: ps.ProofHash,
+					Signature: signature,
+				}
+				// Encode pb done msg.
+				pbDoneMsg := message.MessageEncode(pbDone)
+				// Broadcast pb done msg except itself.
+				go func() {
+					for i := 0; i < pb.n; i++ {
+						if i != pb.id {
+							pb.cs.SendToPeer(i, pbDoneMsg)
+						}
+					}
+				}()
+				pb.outToChannel()
+			}
+		} else {
+			pb.mu.Unlock()
+		}
+	}()
 }
 
 func (pb *PB) ProofDoneHandler(pd message.PBDone) {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
 	if pb.skip {
 		return
 	}
@@ -167,13 +189,28 @@ func (pb *PB) ProofDoneHandler(pd message.PBDone) {
 		return
 	}
 
-	if message.SignatureVerify(proofHash, signature, pb.suite, pb.pubKey) {
-		pb.signature = signature
-		pb.outToChannel()
-	}
+	go func() {
+		if message.SignatureVerify(proofHash, signature, pb.suite, pb.pubKey) {
+			pb.mu.Lock()
+			pb.signature = signature
+			pb.mu.Unlock()
+			pb.outToChannel()
+		}
+	}()
+}
+
+func (pb *PB) Skip() {
+	pb.mu.Lock()
+	pb.skip = true
+	pb.mu.Unlock()
 }
 
 func (pb *PB) outToChannel() {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+
+	pb.logger.Printf("[Round:%d] [Epoch:%d]: [PB:%d] out to channel.\n", pb.round, pb.epoch, pb.fromLeader)
+
 	pb.done <- PBOut{
 		proofs: pb.proofs,
 	}
