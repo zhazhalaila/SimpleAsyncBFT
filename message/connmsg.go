@@ -21,9 +21,9 @@ type ClientRes struct {
 	Results  []byte // Consensus results.
 }
 
-// type DisconnectClient struct {
-// 	ClientId int
-// }
+type DisconnectClient struct {
+	ClientId int
+}
 
 type DelaySimulation struct {
 	DeplayMin int

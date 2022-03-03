@@ -133,3 +133,20 @@ func (cs *ConnectService) Broadcast(msg message.ReqMsg) {
 		}(peerId)
 	}
 }
+
+// Delete client.
+func (cs *ConnectService) ClientDelete(msg message.DisconnectClient) {
+	cs.mu.Lock()
+	delete(cs.clients, msg.ClientId)
+	cs.logger.Printf("[ClientId:%d] disconnect.\n", msg.ClientId)
+	cs.mu.Unlock()
+}
+
+// Delay simulation (x ms).
+func (cs *ConnectService) DelaySimulationConfig(msg message.DelaySimulation) {
+	cs.mu.Lock()
+	cs.delayMax = msg.DeplayMax
+	cs.delayMin = msg.DeplayMin
+	cs.logger.Printf("DelayMin = [%d], DelayMax = [%d].\n", cs.delayMin, cs.delayMax)
+	cs.mu.Unlock()
+}

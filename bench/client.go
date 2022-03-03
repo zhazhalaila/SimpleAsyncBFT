@@ -68,12 +68,22 @@ func (c *Client) ClientConnectPeers(n, clientId int, ipAddr []string) {
 		c.clientConnectNode(ipAddr[i], i, clientId)
 	}
 
-	// Start n goroutine to handle consensus module peers response.
-	for i := 0; i < n; i++ {
-		go func(receiver *json.Decoder) {
+	c.receiveMonitor(clientId)
+}
+
+func (c *Client) receiveMonitor(clientId int) {
+	for i := 0; i < c.n; i++ {
+		go func(i int) {
+			defer func() {
+				c.mu.Lock()
+				delete(c.nodes, i)
+				log.Printf("[Peer:%d] close connection.\n", i)
+				c.mu.Unlock()
+			}()
+
 			for {
 				var msg message.ClientRes
-				if err := receiver.Decode(&msg); err == io.EOF {
+				if err := c.nodes[i].Receive.Decode(&msg); err == io.EOF {
 					break
 				} else if err != nil {
 					log.Println(err)
@@ -83,7 +93,7 @@ func (c *Client) ClientConnectPeers(n, clientId int, ipAddr []string) {
 					msg.Round, clientId, msg.ReqCount, msg.Proposer)
 				go c.responseCount(msg.ReqCount, msg.Proposer)
 			}
-		}(c.nodes[i].Receive)
+		}(i)
 	}
 }
 
@@ -121,6 +131,16 @@ func (c *Client) ClientSendRequest(reqCount, byzantine int, req *request) {
 	}
 }
 
+func (c *Client) ClientClose(clientId int) {
+	for i := 0; i < c.n; i++ {
+		dc := message.DisconnectClient{
+			ClientId: clientId,
+		}
+		dcMsg := message.MessageEncode(dc)
+		c.SendMsg(c.nodes[i].Send, dcMsg)
+	}
+}
+
 func (c *Client) PeerConnectToPeer(n, f int, ipAddr []string) {
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
@@ -135,6 +155,30 @@ func (c *Client) PeerConnectToPeer(n, f int, ipAddr []string) {
 			c.SendMsg(c.nodes[i].Send, peerMsg)
 		}
 	}
+}
+
+func (c *Client) DelayConfig(min, max int) {
+	for i := 0; i < c.n; i++ {
+		delay := message.DelaySimulation{
+			DeplayMin: min,
+			DeplayMax: max,
+		}
+		delayMsg := message.MessageEncode(delay)
+		c.SendMsg(c.nodes[i].Send, delayMsg)
+	}
+}
+
+func (c *Client) ComputeLatency() {
+	requestCount := 0
+	var totalTime int64
+	for _, request := range c.requests {
+		requestCount++
+		totalTime += request.endTime.Milliseconds()
+	}
+
+	log.Printf("BFT protocol consensus [%d] times within [%d] milliseconds.\n", requestCount, totalTime)
+	log.Printf("BFT protocol need [%d]milliseconds to consens for a request which [n=%d, f=%d].\n",
+		totalTime/int64(requestCount), c.n, c.f)
 }
 
 func (c *Client) clientConnectNode(address string, serverId, clientId int) {

@@ -146,12 +146,14 @@ func (pr *PRBC) EchoHandler(echoReq message.Echo) {
 		}()
 	}
 
+	pr.mu.Lock()
 	if len(pr.ready) >= pr.outputThreshold && len(pr.shards) >= pr.k && pr.rbcOut == nil {
 		pr.rbcOut = pr.decode()
 		go func() {
 			pr.shareSend(rootHash)
 		}()
 	}
+	pr.mu.Unlock()
 }
 
 func (pr *PRBC) ReadyHandler(readyReq message.Ready) {
@@ -190,12 +192,14 @@ func (pr *PRBC) ReadyHandler(readyReq message.Ready) {
 		}()
 	}
 
+	pr.mu.Lock()
 	if len(pr.ready) >= pr.outputThreshold && len(pr.shards) >= pr.k && pr.rbcOut == nil {
 		pr.rbcOut = pr.decode()
 		go func() {
 			pr.shareSend(rootHash)
 		}()
 	}
+	pr.mu.Unlock()
 }
 
 // Only leader do this.
@@ -281,6 +285,12 @@ func (pr *PRBC) FinishHandler(finReq message.Finish) {
 	}()
 }
 
+func (pr *PRBC) Skipped() bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	return pr.skip
+}
+
 func (pr *PRBC) Skip() {
 	pr.mu.Lock()
 	pr.skip = true
@@ -290,6 +300,10 @@ func (pr *PRBC) Skip() {
 func (pr *PRBC) outToChannel() {
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
+
+	if pr.skip {
+		return
+	}
 
 	prOut := PRBCOut{
 		rbcOut:   pr.rbcOut,

@@ -108,6 +108,18 @@ func MessageEncode(msg interface{}) ReqMsg {
 		if err != nil {
 			log.Fatal(err)
 		}
+	case DisconnectClient:
+		svcMeth = "ConnectService.ClientDelete"
+		err := enc.Encode(msg.(DisconnectClient))
+		if err != nil {
+			log.Fatal(err)
+		}
+	case DelaySimulation:
+		svcMeth = "ConnectService.DelaySimulationConfig"
+		err := enc.Encode(msg.(DelaySimulation))
+		if err != nil {
+			log.Fatal(err)
+		}
 	default:
 		log.Println(v)
 	}

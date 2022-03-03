@@ -82,9 +82,6 @@ func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq)
 		}
 	}
 
-	/*
-	 */
-
 	pb.proofs = proofs
 	// Send share for proofHash to proposer.
 	// Generate pbres msg.
@@ -205,11 +202,21 @@ func (pb *PB) Skip() {
 	pb.mu.Unlock()
 }
 
+func (pb *PB) Skipped() bool {
+	pb.mu.Lock()
+	defer pb.mu.Unlock()
+	return pb.skip
+}
+
 func (pb *PB) outToChannel() {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
 
 	pb.logger.Printf("[Round:%d] [Epoch:%d]: [PB:%d] out to channel.\n", pb.round, pb.epoch, pb.fromLeader)
+
+	if pb.skip {
+		return
+	}
 
 	pb.done <- PBOut{
 		proofs: pb.proofs,

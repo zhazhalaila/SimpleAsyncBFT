@@ -451,6 +451,11 @@ func (ba *BA) CoinHandler(coin message.COIN) {
 			signature := message.ComputeSignature(hashMsg, ba.suite, shares, ba.pubKey, ba.n, ba.f+1)
 			if message.SignatureVerify(hashMsg, signature, ba.suite, ba.pubKey) {
 				coinHash := sha256.Sum256(signature)
+				ba.mu.Lock()
+				defer ba.mu.Unlock()
+				if ba.stop {
+					return
+				}
 				ba.signal <- eventNotify{event: CoinRecv, epoch: epoch, coin: int(coinHash[0]) % 2}
 			}
 		}()
