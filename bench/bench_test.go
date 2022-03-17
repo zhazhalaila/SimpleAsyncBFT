@@ -7,19 +7,35 @@ import (
 )
 
 func TestConsensusLocalWith4Nodes(t *testing.T) {
-	testConsensus(t, "../localAddress.txt", 4, 1, -1, 20, 50)
+	testConsensus(t, "../localAddress.txt", 4, 1, -1, 1, 10)
 }
 
 func TestConsensusRemoteWith4Nodes(t *testing.T) {
-	testConsensus(t, "../remoteAddress.txt", 4, 1, -1, 20, 50)
+	testConsensus(t, "../remoteAddress.txt", 4, 1, -1, 1, 10)
 }
 
 func TestConsensusLocalWith8Nodes(t *testing.T) {
-	testConsensus(t, "../localAddress.txt", 8, 2, -1, 10, 20)
+	testConsensus(t, "../localAddress.txt", 8, 2, -1, 1, 10)
+}
+
+func TestConsensusRemoteWith8Nodes(t *testing.T) {
+	testConsensus(t, "../remoteAddress.txt", 8, 2, -1, 1, 10)
+}
+
+func TestConsensusLocalWith16Nodes(t *testing.T) {
+	testConsensus(t, "../localAddress.txt", 16, 5, -1, 1, 10)
+}
+
+func TestConsensusRemoteWith16Nodes(t *testing.T) {
+	testConsensus(t, "../remoteAddress.txt", 16, 5, -1, 1, 10)
 }
 
 func TestConsensusLocalWith32Nodes(t *testing.T) {
-	testConsensus(t, "../localAddress.txt", 32, 10, -1, 10, 20)
+	testConsensus(t, "../localAddress.txt", 32, 10, -1, 1, 10)
+}
+
+func TestConsensusRemoteWith32Nodes(t *testing.T) {
+	testConsensus(t, "../remoteAddress.txt", 32, 10, -1, 1, 10)
 }
 
 func TestConsensusLocalWith1ByzantineNodes(t *testing.T) {

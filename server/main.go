@@ -29,7 +29,7 @@ func main() {
 	defer logFile.Close()
 
 	// Config logger.
-	logger := log.New(logFile, "logger: ", log.Lshortfile)
+	logger := log.New(logFile, "logger: ", log.Ldate|log.Ltime|log.Lshortfile)
 	logger.Print("Start server.")
 
 	// Create network.

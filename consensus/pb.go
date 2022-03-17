@@ -67,7 +67,7 @@ func (pb *PB) ProofReqHandler(recvProof map[int]message.Proof, pr message.PBReq)
 
 	proofs := pr.Proofs
 
-	// For loop to check.
+	// For loop to check. (Logic bug...)
 	// 1. If proof has received but current proof != received proof, return.
 	// 2. If proof has not received but current proof is invalid, return.
 	for index, proof := range proofs {

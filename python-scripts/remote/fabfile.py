@@ -1,6 +1,9 @@
 import getpass
+import threading
+import sys
+import time
 
-from fabric import task, Config
+from fabric import task, Config, Connection
 from fabric.group import SerialGroup, ThreadingGroup, GroupException
 
 # Read ip addr from file.
@@ -19,6 +22,9 @@ def connect_config(n):
     config = Config(overrides={'sudo': {'password': sudo_pass}})
     return ip_array, sudo_user, sudo_pass, config
 
+def start_server(conn, n, f, id):
+    conn.run("bash -c 'cd SimpleAsyncBFT/server && ./server -n={} -f={} -id={}'".format(n, f, id))
+
 # connect test
 @task
 def connect(context, n):
@@ -28,6 +34,14 @@ def connect(context, n):
     # run who am i
     group.run("whoami")
 
+# delete log file
+@task
+def delete(context, n):
+    del context
+    ip_array, sudo_user, sudo_pass, config = connect_config(n)
+    group = ThreadingGroup(*ip_array, user=sudo_user, connect_kwargs={'password': sudo_pass}, config=config)
+    group.run('rm SimpleAsyncBFT/log.txt')
+
 # update repo
 @task
 def update(context, n):
@@ -36,6 +50,14 @@ def update(context, n):
     group = SerialGroup(*ip_array, user=sudo_user, connect_kwargs={'password': sudo_pass}, config=config)
     group.run('rm -rf SimpleAsyncBFT')
     group.run('git clone https://gitee.com/zhazhalaila/SimpleAsyncBFT.git')
+
+# get log
+@task
+def log(context, n):
+    del context
+    ip_array, sudo_user, sudo_pass, config = connect_config(n)
+    conn = Connection(ip_array[-1], user=sudo_user, connect_kwargs={'password': sudo_pass}, config=config)
+    conn.get('SimpleAsyncBFT/log.txt')
 
 # start remote server
 @task
@@ -54,5 +76,12 @@ def start(context, n, f):
     # start server with parameter.
     id = 0
     for conn in group:
-        conn.run('./server -n={} -f={} -id={}'.format(n, f, id))
+        x = threading.Thread(target=start_server, args=(conn, n, f, id,), daemon=True)
         id += 1
+        x.start()
+
+    # wait for start server.
+    time.sleep(20)
+
+    ## Exit program. (sudo('./server') will block forever...)
+    # sys.exit()
