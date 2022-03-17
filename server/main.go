@@ -32,8 +32,6 @@ func main() {
 		logFile.Close()
 	}()
 
-	defer logFile.Close()
-
 	// Config logger.
 	logger := log.New(logFile, "logger: ", log.Ldate|log.Ltime|log.Lshortfile)
 	logger.Print("Start server.")
