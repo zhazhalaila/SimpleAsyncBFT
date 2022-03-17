@@ -23,7 +23,7 @@ def connect_config(n):
     return ip_array, sudo_user, sudo_pass, config
 
 def start_server(conn, n, f, id):
-    conn.run("bash -c 'cd SimpleAsyncBFT/server && go build && ./server -n={} -f={} -id={}'".format(n, f, id))
+    conn.run("bash -c 'cd SimpleAsyncBFT/server && ./server -n={} -f={} -id={}'".format(n, f, id))
 
 # connect test
 @task

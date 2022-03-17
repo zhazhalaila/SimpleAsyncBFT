@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"syscall"
 )
 
 func main() {
@@ -27,10 +26,7 @@ func main() {
 		log.Fatalf("error opening file : %v", err)
 	}
 
-	defer func() {
-		syscall.Dup2(int(logFile.Fd()), int(os.Stderr.Fd()))
-		logFile.Close()
-	}()
+	defer logFile.Close()
 
 	// Config logger.
 	logger := log.New(logFile, "logger: ", log.Ldate|log.Ltime|log.Lshortfile)
