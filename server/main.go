@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"syscall"
 )
 
 func main() {
@@ -25,6 +26,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("error opening file : %v", err)
 	}
+
+	defer func() {
+		syscall.Dup2(int(logFile.Fd()), int(os.Stderr.Fd()))
+		logFile.Close()
+	}()
 
 	defer logFile.Close()
 
