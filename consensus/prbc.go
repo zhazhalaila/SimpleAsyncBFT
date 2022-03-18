@@ -313,6 +313,7 @@ func (pr *PRBC) outToChannel() {
 
 	pr.logger.Printf("[Round:%d] [PRBC:%d] out to channel.\n", pr.round, pr.fromLeader)
 	pr.done <- prOut
+	pr.skip = true
 }
 
 func (pr *PRBC) shareSend(rootHash []byte) {

@@ -221,4 +221,5 @@ func (pb *PB) outToChannel() {
 	pb.done <- PBOut{
 		proofs: pb.proofs,
 	}
+	pb.skip = true
 }
