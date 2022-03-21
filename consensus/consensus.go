@@ -8,15 +8,15 @@ import (
 	"encoding/json"
 	"log"
 	"strconv"
-	"sync"
 
 	"github.com/klauspost/reedsolomon"
+	"github.com/sasha-s/go-deadlock"
 	"go.dedis.ch/kyber/v3/pairing/bn256"
 	"go.dedis.ch/kyber/v3/share"
 )
 
 type ConsensusModule struct {
-	mu       sync.Mutex                    // Prevent data race.
+	mu       deadlock.Mutex                // Prevent data race.
 	id       int                           // Peer identify.
 	n        int                           // Peers number.
 	f        int                           // Byzantine node number.
@@ -202,10 +202,15 @@ func (cm *ConsensusModule) waitForPRBC(round, proposer int, prbcOut PRBCOut, don
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	if cm.prbcs[round][proposer].Skipped() {
+		return
+	}
+
 	cm.proofCheck(round)
 
 	// Store prbc output and close channel.
 	cm.prbcOuts[round][proposer] = prbcOut
+	cm.prbcs[round][proposer].Skip()
 	close(done)
 	// Wait for n-f prbc out. If prbc out not record in proofs, record it.
 	if len(cm.prbcOuts[round]) == 2*cm.f+1 {
@@ -310,7 +315,12 @@ func (cm *ConsensusModule) waitForPB(round, epoch, proposer int, pbOut PBOut, do
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	if cm.pbs[round][epoch][proposer].Skipped() {
+		return
+	}
+
 	cm.pbOuts[round][epoch][proposer] = pbOut
+	cm.pbs[round][epoch][proposer].Skip()
 	close(done)
 
 	// If epoch == 0, wait for n-f PB done then start epoch 1 pb.

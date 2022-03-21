@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"log"
 	"strconv"
-	"sync"
 
+	"github.com/sasha-s/go-deadlock"
 	"go.dedis.ch/kyber/v3/pairing/bn256"
 	"go.dedis.ch/kyber/v3/share"
 )
@@ -20,7 +20,7 @@ const (
 )
 
 type BA struct {
-	mu            sync.Mutex                // Prevent data race.
+	mu            deadlock.Mutex            // Prevent data race.
 	n             int                       // Total node number.
 	f             int                       // Byzantine node number.
 	id            int                       // Peer's identify.

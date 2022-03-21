@@ -5,16 +5,16 @@ import (
 	merkletree "SimpleAsyncBFT/merkleTree"
 	"SimpleAsyncBFT/message"
 	"log"
-	"sync"
 
 	"github.com/klauspost/reedsolomon"
+	"github.com/sasha-s/go-deadlock"
 	"go.dedis.ch/kyber/v3/pairing/bn256"
 	"go.dedis.ch/kyber/v3/share"
 )
 
 // If consensus module decide to skip current round, prbc will not execute.
 type PRBC struct {
-	mu              sync.Mutex                // Prevent data race.
+	mu              deadlock.Mutex            // Prevent data race.
 	n               int                       // Peers number.
 	f               int                       // Byzantine peers number.
 	id              int                       // Peer's identify.
@@ -313,7 +313,6 @@ func (pr *PRBC) outToChannel() {
 
 	pr.logger.Printf("[Round:%d] [PRBC:%d] out to channel.\n", pr.round, pr.fromLeader)
 	pr.done <- prOut
-	pr.skip = true
 }
 
 func (pr *PRBC) shareSend(rootHash []byte) {

@@ -61,7 +61,7 @@ func testConsensus(t *testing.T, fileName string, n, f, byzantine int, delayMin,
 	c.PeerConnectToPeer(n, byzantine, ipAddr)
 
 	// Client send requests.
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		req := &request{}
 		req.done = make(chan bool)
 		c.ClientSendRequest(i, byzantine, req)
