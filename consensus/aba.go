@@ -93,10 +93,10 @@ func MakeBA(n, f, id, round, subround, est int,
 
 func (ba *BA) epochGenesis() {
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock in epochGenesis.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock in epochGenesis.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock in epochGenesis.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock in epochGenesis.\n", ba.round)
 	}()
 
 	ba.initEpoch(ba.epoch)
@@ -107,7 +107,7 @@ func (ba *BA) epochGenesis() {
 // If ba done, this event handler will exit due to close event channel.
 func (ba *BA) eventHandler() {
 	for v := range ba.signal {
-		ba.logger.Printf("[Round:%d] Receive value from channel.", ba.round)
+		ba.logger.Printf("BA [Round:%d] Receive value from channel.", ba.round)
 		switch v.event {
 		case BinChange:
 			go ba.auxBC(v.epoch)
@@ -119,7 +119,7 @@ func (ba *BA) eventHandler() {
 			go ba.setNewEst(v.epoch, v.coin)
 		}
 	}
-	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] end...\n", ba.round, ba.subround, ba.epoch)
+	ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] end...\n", ba.round, ba.subround, ba.epoch)
 }
 
 func (ba *BA) estBC(epoch, est int) {
@@ -134,7 +134,7 @@ func (ba *BA) estBC(epoch, est int) {
 	// Est message encode.
 	estMsg := message.MessageEncode(e)
 	// Broad est message.
-	// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] est value.\n", ba.round, ba.subround, epoch, est)
+	// ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] est value.\n", ba.round, ba.subround, epoch, est)
 	go ba.cs.Broadcast(estMsg)
 }
 
@@ -148,24 +148,24 @@ func (ba *BA) auxBC(epoch int) {
 	}
 	// Get the latest bin value in epoch.
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for broadcast bin value.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for broadcast bin value.\n", ba.round)
 	aux.Element = ba.binVals[epoch][len(ba.binVals[epoch])-1]
 	ba.mu.Unlock()
-	ba.logger.Printf("[Round:%d] Release Lock for broadcast bin value.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Release Lock for broadcast bin value.\n", ba.round)
 
 	// Encode aux msg.
 	auxMsg := message.MessageEncode(aux)
 	// Broadcast aux msg.
-	// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] aux values.\n", ba.round, ba.subround, epoch, aux.Element)
+	// ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] broad [%d] aux values.\n", ba.round, ba.subround, epoch, aux.Element)
 	go ba.cs.Broadcast(auxMsg)
 }
 
 func (ba *BA) auxCheck(epoch int) {
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for bin values.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for bin values.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock for bin values.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock for bin values.\n", ba.round)
 	}()
 
 	// If conf value has sent, return.
@@ -204,7 +204,7 @@ func (ba *BA) auxCheck(epoch int) {
 		return
 	}
 
-	// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] aux values = [%v].\n",
+	// ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] aux values = [%v].\n",
 	// 	ba.round, ba.subround, ba.epoch, ba.binVals[epoch], ba.auxVals[epoch])
 }
 
@@ -216,22 +216,22 @@ func (ba *BA) confBroadcast(epoch int, conf message.CONF) {
 
 func (ba *BA) confCheck(epoch int) {
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for conf values.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for conf values.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock for conf values.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock for conf values.\n", ba.round)
 	}()
 
 	// If receive >= 2f+1 conf msg with 1, set value to 1.
 	if inSlice(1, ba.binVals[epoch]) && len(ba.confVals[epoch][1]) >= ba.n-ba.f {
-		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [1] msg", ba.round, ba.subround, epoch)
+		ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [1] msg", ba.round, ba.subround, epoch)
 		ba.coinBC(epoch, 1)
 		return
 	}
 
 	// If receive >= 2f+1 conf msg with 0, set value to 0.
 	if inSlice(0, ba.binVals[epoch]) && len(ba.confVals[epoch][0]) >= ba.n-ba.f {
-		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [0] msg", ba.round, ba.subround, epoch)
+		ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [0] msg", ba.round, ba.subround, epoch)
 		ba.coinBC(epoch, 0)
 		return
 	}
@@ -255,13 +255,13 @@ func (ba *BA) confCheck(epoch int) {
 	}
 
 	if count >= ba.n-ba.f {
-		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [(0,1)] msg", ba.round, ba.subround, epoch)
+		ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] receive n-f [(0,1)] msg", ba.round, ba.subround, epoch)
 		ba.coinBC(epoch, 2)
 	} else {
 		return
 	}
 
-	ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] conf values = [%v].\n",
+	ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] bin values = [%v] conf values = [%v].\n",
 		ba.round, ba.subround, epoch, ba.binVals[epoch], ba.confVals[epoch])
 }
 
@@ -289,7 +289,7 @@ func (ba *BA) coinBC(epoch, val int) {
 		}
 		// Encode coin msg.
 		coinMsg := message.MessageEncode(coin)
-		// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] broadcast coin msg.\n", ba.round, ba.subround, epoch)
+		// ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] broadcast coin msg.\n", ba.round, ba.subround, epoch)
 		// Broadcast coin msg.
 		ba.cs.Broadcast(coinMsg)
 	}()
@@ -297,10 +297,10 @@ func (ba *BA) coinBC(epoch, val int) {
 
 func (ba *BA) setNewEst(epoch, coin int) {
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for epoch end.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for epoch end.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock for epoch end.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock for epoch end.\n", ba.round)
 	}()
 
 	// If decided, and decided value == current epoch coin,
@@ -309,7 +309,7 @@ func (ba *BA) setNewEst(epoch, coin int) {
 		if ba.alreadyDecide == nil {
 			value := ba.values[epoch]
 			ba.alreadyDecide = &value
-			ba.logger.Printf("[Round:%d] [SubRound:%d] BA decide in [Epoch:%d].\n", ba.round, ba.subround, ba.epoch)
+			ba.logger.Printf("BA [Round:%d] [SubRound:%d] BA decide in [Epoch:%d].\n", ba.round, ba.subround, ba.epoch)
 			ba.decide <- value
 		} else if *ba.alreadyDecide == ba.values[epoch] {
 			ba.stop = true
@@ -342,10 +342,10 @@ func (ba *BA) ESTHandler(est message.EST) {
 	v := est.BinVal
 
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for est msg.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for est msg.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock for est msg.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock for est msg.\n", ba.round)
 	}()
 
 	ba.initEpoch(epoch)
@@ -357,7 +357,7 @@ func (ba *BA) ESTHandler(est message.EST) {
 
 	// If receive redundant est value from same sender, return.
 	if inSlice(sender, ba.estVals[epoch][v]) {
-		ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] receive redundant EST value from [Sender:%d] est values = [%v].\n",
+		ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] receive redundant EST value from [Sender:%d] est values = [%v].\n",
 			ba.round, ba.subround, epoch, sender, ba.estVals[epoch][v])
 		return
 	}
@@ -373,8 +373,8 @@ func (ba *BA) ESTHandler(est message.EST) {
 	if len(ba.estVals[epoch][v]) >= 2*ba.f+1 {
 		if !inSlice(v, ba.binVals[epoch]) {
 			ba.binVals[epoch] = append(ba.binVals[epoch], v)
-			// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] added [%d] to bin values.\n", ba.round, ba.subround, epoch, v)
-			ba.logger.Printf("[Round:%d] Send channel due to bin value change.\n", ba.round)
+			// ba.logger.Printf("BA [Round:%d] [SubRound:%d] [Epoch:%d] added [%d] to bin values.\n", ba.round, ba.subround, epoch, v)
+			ba.logger.Printf("BA [Round:%d] Send channel due to bin value change.\n", ba.round)
 			ba.signal <- eventNotify{event: BinChange, epoch: epoch}
 		}
 	}
@@ -386,10 +386,10 @@ func (ba *BA) AUXHandler(aux message.AUX) {
 	e := aux.Element
 
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for aux msg.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for aux msg.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock for aux msg.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock for aux msg.\n", ba.round)
 	}()
 
 	ba.initEpoch(epoch)
@@ -401,14 +401,14 @@ func (ba *BA) AUXHandler(aux message.AUX) {
 
 	// If receive redundant aux value from same sender, return.
 	if inSlice(sender, ba.auxVals[epoch][e]) {
-		ba.logger.Printf("[Round:%d][SubRound:%d][Epoch:%d] receive redundant AUX value from [Sender:%d].\n",
+		ba.logger.Printf("BA [Round:%d][SubRound:%d][Epoch:%d] receive redundant AUX value from [Sender:%d].\n",
 			ba.round, ba.subround, epoch, sender)
 		return
 	}
 
 	ba.auxVals[epoch][e] = append(ba.auxVals[epoch][e], sender)
 	// Aux event signal.
-	ba.logger.Printf("[Round:%d] Send channel due to aux value change.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Send channel due to aux value change.\n", ba.round)
 	ba.signal <- eventNotify{event: AuxRecv, epoch: epoch}
 }
 
@@ -418,10 +418,10 @@ func (ba *BA) ConfHandler(conf message.CONF) {
 	val := conf.Val
 
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for conf msg.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for conf msg.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock for conf msg.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock for conf msg.\n", ba.round)
 	}()
 
 	ba.initEpoch(epoch)
@@ -433,13 +433,13 @@ func (ba *BA) ConfHandler(conf message.CONF) {
 
 	// If receive redundant conf value from same sender, return.
 	if inSlice(sender, ba.confVals[epoch][val]) {
-		ba.logger.Printf("[Round:%d][SubRound:%d][Epoch:%d] receive redundant CONF value from [Sender:%d].\n",
+		ba.logger.Printf("BA [Round:%d][SubRound:%d][Epoch:%d] receive redundant CONF value from [Sender:%d].\n",
 			ba.round, ba.subround, epoch, sender)
 		return
 	}
 	ba.confVals[epoch][val] = append(ba.confVals[epoch][val], sender)
 	// Conf event signal.
-	ba.logger.Printf("[Round:%d] Send channel due to conf value change.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Send channel due to conf value change.\n", ba.round)
 	ba.signal <- eventNotify{event: ConfRecv, epoch: epoch}
 }
 
@@ -454,10 +454,10 @@ func (ba *BA) CoinHandler(coin message.COIN) {
 	}
 
 	ba.mu.Lock()
-	ba.logger.Printf("[Round:%d] Get Lock for coin msg.\n", ba.round)
+	ba.logger.Printf("BA [Round:%d] Get Lock for coin msg.\n", ba.round)
 	defer func() {
 		ba.mu.Unlock()
-		ba.logger.Printf("[Round:%d] Release Lock for coin msg.\n", ba.round)
+		ba.logger.Printf("BA [Round:%d] Release Lock for coin msg.\n", ba.round)
 	}()
 
 	ba.initEpoch(epoch)
@@ -490,16 +490,16 @@ func (ba *BA) CoinHandler(coin message.COIN) {
 			if message.SignatureVerify(hashMsg, signature, ba.suite, ba.pubKey) {
 				coinHash := sha256.Sum256(signature)
 				ba.mu.Lock()
-				ba.logger.Printf("[Round:%d] Get Lock due to receive f+1 coin.\n", ba.round)
+				ba.logger.Printf("BA [Round:%d] Get Lock due to receive f+1 coin.\n", ba.round)
 				defer func() {
 					defer ba.mu.Unlock()
-					ba.logger.Printf("[Round:%d] Release Lock due to receive f+1 coin.\n", ba.round)
+					ba.logger.Printf("BA [Round:%d] Release Lock due to receive f+1 coin.\n", ba.round)
 
 				}()
 				if ba.stop {
 					return
 				}
-				ba.logger.Printf("[Round:%d] Send channel due to get coin value.\n", ba.round)
+				ba.logger.Printf("BA [Round:%d] Send channel due to get coin value.\n", ba.round)
 				ba.signal <- eventNotify{event: CoinRecv, epoch: epoch, coin: int(coinHash[0]) % 2}
 			}
 		}()

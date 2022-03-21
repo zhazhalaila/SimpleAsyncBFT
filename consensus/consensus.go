@@ -79,11 +79,13 @@ func (cm *ConsensusModule) HandleInput(input message.Input) {
 
 	// Input validation.
 	cm.mu.Lock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", cm.round)
 	cm.reqs[cm.round] = input.ClientReq
 	cm.PRBCCheck(cm.round, cm.id, rootHash)
 	round := cm.round
 	cm.round++
 	cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", cm.round)
 
 	// cm.logger.Printf("[Round:%d]: [Peer:%d] start PRBC.\n", round, cm.id)
 
@@ -108,7 +110,11 @@ func (cm *ConsensusModule) HandleVal(val message.Val) {
 	// // cm.logger.Printf("[Round:%d]: [Peer:%d] handle val from [sender:%d].\n", val.Round, cm.id, val.Proposer)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", cm.round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", val.Round)
+	}()
 
 	cm.PRBCCheck(val.Round, val.Proposer, val.RootHash)
 	cm.prbcs[val.Round][val.Proposer].ValHandler(val)
@@ -118,7 +124,11 @@ func (cm *ConsensusModule) HandleEcho(echo message.Echo) {
 	// // cm.logger.Printf("[Round:%d]: [Peer:%d] handle echo from [sender:%d].\n", echo.Round, cm.id, echo.Sender)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", echo.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", echo.Round)
+	}()
 
 	cm.PRBCCheck(echo.Round, echo.Proposer, echo.RootHash)
 	cm.prbcs[echo.Round][echo.Proposer].EchoHandler(echo)
@@ -128,7 +138,11 @@ func (cm *ConsensusModule) HandleReady(ready message.Ready) {
 	// // cm.logger.Printf("[Round:%d]: [Peer:%d] handle ready from [sender:%d].\n", ready.Round, cm.id, ready.Sender)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", ready.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", ready.Round)
+	}()
 
 	cm.PRBCCheck(ready.Round, ready.Proposer, ready.RootHash)
 	cm.prbcs[ready.Round][ready.Proposer].ReadyHandler(ready)
@@ -138,7 +152,11 @@ func (cm *ConsensusModule) HandleRBCProof(proof message.RBCProof) {
 	// // cm.logger.Printf("[Round:%d]: [Peer:%d] handle proof from [endorser:%d].\n", proof.Round, cm.id, proof.Endorser)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", proof.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", proof.Round)
+	}()
 
 	cm.PRBCCheck(proof.Round, proof.Proposer, proof.RootHash)
 	cm.prbcs[proof.Round][proof.Proposer].ProofHandler(proof)
@@ -148,7 +166,11 @@ func (cm *ConsensusModule) HandleFinish(fin message.Finish) {
 	// // cm.logger.Printf("[Round:%d]: [Peer:%d] handle finish from [Leader:%d].\n", fin.Round, cm.id, fin.LeaderId)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", fin.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", fin.Round)
+	}()
 
 	cm.PRBCCheck(fin.Round, fin.Proposer, fin.RootHash)
 	cm.prbcs[fin.Round][fin.Proposer].FinishHandler(fin)
@@ -200,7 +222,11 @@ func (cm *ConsensusModule) prbcChanMonitor(round, proposer int, done chan PRBCOu
 
 func (cm *ConsensusModule) waitForPRBC(round, proposer int, prbcOut PRBCOut, done chan PRBCOut) {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", round)
+	}()
 
 	if cm.prbcs[round][proposer].Skipped() {
 		return
@@ -233,7 +259,11 @@ func (cm *ConsensusModule) HandlePBReq(pbReq message.PBReq) {
 	// 	pbReq.Round, pbReq.Epoch, cm.id, pbReq.Proposer)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", pbReq.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", pbReq.Round)
+	}()
 
 	cm.PBCheck(pbReq.Round, pbReq.Epoch, pbReq.Proposer)
 	cm.pbs[pbReq.Round][pbReq.Epoch][pbReq.Proposer].ProofReqHandler(cm.proofs[pbReq.Round], pbReq)
@@ -244,7 +274,11 @@ func (cm *ConsensusModule) HandlePBRes(pbRes message.PBRes) {
 	// 	pbRes.Round, pbRes.Epoch, cm.id, pbRes.Endorser)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", pbRes.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", pbRes.Round)
+	}()
 
 	cm.PBCheck(pbRes.Round, pbRes.Epoch, pbRes.Proposer)
 	cm.pbs[pbRes.Round][pbRes.Epoch][pbRes.Proposer].ProofResHandler(pbRes)
@@ -255,7 +289,11 @@ func (cm *ConsensusModule) HandlePBDone(pd message.PBDone) {
 	// 	pd.Round, pd.Epoch, cm.id, pd.Proposer)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", pd.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", pd.Round)
+	}()
 
 	cm.PBCheck(pd.Round, pd.Epoch, pd.Proposer)
 	cm.pbs[pd.Round][pd.Epoch][pd.Proposer].ProofDoneHandler(pd)
@@ -313,7 +351,11 @@ func (cm *ConsensusModule) pbChanMonitor(round, epoch, proposer int, done chan P
 
 func (cm *ConsensusModule) waitForPB(round, epoch, proposer int, pbOut PBOut, done chan PBOut) {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", round)
+	}()
 
 	if cm.pbs[round][epoch][proposer].Skipped() {
 		return
@@ -344,7 +386,11 @@ func (cm *ConsensusModule) HandleElect(electReq message.ElectReq) {
 	// 	electReq.Round, electReq.Epoch, cm.id, electReq.Endorser)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", electReq.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", electReq.Round)
+	}()
 
 	cm.ElectCheck(electReq.Round, electReq.Epoch)
 
@@ -363,7 +409,11 @@ func (cm *ConsensusModule) BAInput(round, subround, leaderId, est int) {
 	// cm.logger.Printf("[Round:%d] [SubRound:%d]: [Peer:%d] input [%d] to BA.\n", round, subround, cm.id, est)
 
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", round)
+	}()
 
 	cm.BACheck(round)
 	decide := make(chan int)
@@ -404,7 +454,11 @@ func (cm *ConsensusModule) baMonitor(round, subround, leaderId int, decide chan 
 // If BA has not created, cache req.
 func (cm *ConsensusModule) HandleEST(est message.EST) {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", est.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", est.Round)
+	}()
 
 	cm.BACheck(est.Round)
 
@@ -417,7 +471,11 @@ func (cm *ConsensusModule) HandleEST(est message.EST) {
 
 func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", aux.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", aux.Round)
+	}()
 
 	cm.BACheck(aux.Round)
 
@@ -430,8 +488,11 @@ func (cm *ConsensusModule) HandleAUX(aux message.AUX) {
 
 func (cm *ConsensusModule) HandleCONF(conf message.CONF) {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", conf.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", conf.Round)
+	}()
 	cm.BACheck(conf.Round)
 
 	if _, ok := cm.bas[conf.Round][conf.SubRound]; ok {
@@ -443,7 +504,11 @@ func (cm *ConsensusModule) HandleCONF(conf message.CONF) {
 
 func (cm *ConsensusModule) HandleCOIN(coin message.COIN) {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	cm.logger.Printf("Consensus [Round:%d] Get Lock.\n", coin.Round)
+	defer func() {
+		defer cm.mu.Unlock()
+		cm.logger.Printf("Consensus [Round:%d] Release Lock.\n", coin.Round)
+	}()
 
 	cm.BACheck(coin.Round)
 
@@ -556,12 +621,6 @@ func (cm *ConsensusModule) roundEnd(round, subround, leaderId int) {
 	}
 	cm.mu.Unlock()
 
-	var receivers []int
-	for receiver := range prbcOuts {
-		receivers = append(receivers, receiver)
-	}
-	// cm.logger.Printf("[Round:%d] receive [%v] prbc outs.\n", round, receivers)
-
 	cm.mu.Lock()
 	clientId := cm.reqs[round].ClientId
 	reqCount := cm.reqs[round].RequestCount
@@ -607,10 +666,6 @@ func (cm *ConsensusModule) BACheck(round int) {
 }
 
 func (cm *ConsensusModule) provableBroadcast(round, epoch int, proofs map[int]message.Proof) {
-	var prbcRecvs []int
-	for recv := range proofs {
-		prbcRecvs = append(prbcRecvs, recv)
-	}
 	// Generate pbReq msg.
 	pbReq := message.PBReq{
 		Proposer:  cm.id,
