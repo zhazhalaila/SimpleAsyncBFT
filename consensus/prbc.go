@@ -311,7 +311,7 @@ func (pr *PRBC) outToChannel() {
 		rbcSig:   pr.signature,
 	}
 
-	pr.logger.Printf("[Round:%d] [PRBC:%d] out to channel.\n", pr.round, pr.fromLeader)
+	// pr.logger.Printf("[Round:%d] [PRBC:%d] out to channel.\n", pr.round, pr.fromLeader)
 	pr.done <- prOut
 }
 

@@ -93,7 +93,11 @@ func MakeBA(n, f, id, round, subround, est int,
 
 func (ba *BA) epochGenesis() {
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock in epochGenesis.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock in epochGenesis.\n", ba.round)
+	}()
 
 	ba.initEpoch(ba.epoch)
 	ba.estSent[ba.epoch][ba.est] = true
@@ -103,6 +107,7 @@ func (ba *BA) epochGenesis() {
 // If ba done, this event handler will exit due to close event channel.
 func (ba *BA) eventHandler() {
 	for v := range ba.signal {
+		ba.logger.Printf("[Round:%d] Receive value from channel.", ba.round)
 		switch v.event {
 		case BinChange:
 			go ba.auxBC(v.epoch)
@@ -143,8 +148,10 @@ func (ba *BA) auxBC(epoch int) {
 	}
 	// Get the latest bin value in epoch.
 	ba.mu.Lock()
+	ba.logger.Printf("[Round:%d] Get Lock for broadcast bin value.\n", ba.round)
 	aux.Element = ba.binVals[epoch][len(ba.binVals[epoch])-1]
 	ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Release Lock for broadcast bin value.\n", ba.round)
 
 	// Encode aux msg.
 	auxMsg := message.MessageEncode(aux)
@@ -155,7 +162,11 @@ func (ba *BA) auxBC(epoch int) {
 
 func (ba *BA) auxCheck(epoch int) {
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock for bin values.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock for bin values.\n", ba.round)
+	}()
 
 	// If conf value has sent, return.
 	if ba.confSent[epoch] {
@@ -205,7 +216,11 @@ func (ba *BA) confBroadcast(epoch int, conf message.CONF) {
 
 func (ba *BA) confCheck(epoch int) {
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock for conf values.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock for conf values.\n", ba.round)
+	}()
 
 	// If receive >= 2f+1 conf msg with 1, set value to 1.
 	if inSlice(1, ba.binVals[epoch]) && len(ba.confVals[epoch][1]) >= ba.n-ba.f {
@@ -282,7 +297,11 @@ func (ba *BA) coinBC(epoch, val int) {
 
 func (ba *BA) setNewEst(epoch, coin int) {
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock for epoch end.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock for epoch end.\n", ba.round)
+	}()
 
 	// If decided, and decided value == current epoch coin,
 	// close event channel, change stop flag to prevent send channel.
@@ -323,7 +342,11 @@ func (ba *BA) ESTHandler(est message.EST) {
 	v := est.BinVal
 
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock for est msg.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock for est msg.\n", ba.round)
+	}()
 
 	ba.initEpoch(epoch)
 
@@ -350,7 +373,8 @@ func (ba *BA) ESTHandler(est message.EST) {
 	if len(ba.estVals[epoch][v]) >= 2*ba.f+1 {
 		if !inSlice(v, ba.binVals[epoch]) {
 			ba.binVals[epoch] = append(ba.binVals[epoch], v)
-			ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] added [%d] to bin values.\n", ba.round, ba.subround, epoch, v)
+			// ba.logger.Printf("[Round:%d] [SubRound:%d] [Epoch:%d] added [%d] to bin values.\n", ba.round, ba.subround, epoch, v)
+			ba.logger.Printf("[Round:%d] Send channel due to bin value change.\n", ba.round)
 			ba.signal <- eventNotify{event: BinChange, epoch: epoch}
 		}
 	}
@@ -362,7 +386,11 @@ func (ba *BA) AUXHandler(aux message.AUX) {
 	e := aux.Element
 
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock for aux msg.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock for aux msg.\n", ba.round)
+	}()
 
 	ba.initEpoch(epoch)
 
@@ -380,6 +408,7 @@ func (ba *BA) AUXHandler(aux message.AUX) {
 
 	ba.auxVals[epoch][e] = append(ba.auxVals[epoch][e], sender)
 	// Aux event signal.
+	ba.logger.Printf("[Round:%d] Send channel due to aux value change.\n", ba.round)
 	ba.signal <- eventNotify{event: AuxRecv, epoch: epoch}
 }
 
@@ -389,7 +418,11 @@ func (ba *BA) ConfHandler(conf message.CONF) {
 	val := conf.Val
 
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock for conf msg.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock for conf msg.\n", ba.round)
+	}()
 
 	ba.initEpoch(epoch)
 
@@ -406,6 +439,7 @@ func (ba *BA) ConfHandler(conf message.CONF) {
 	}
 	ba.confVals[epoch][val] = append(ba.confVals[epoch][val], sender)
 	// Conf event signal.
+	ba.logger.Printf("[Round:%d] Send channel due to conf value change.\n", ba.round)
 	ba.signal <- eventNotify{event: ConfRecv, epoch: epoch}
 }
 
@@ -420,7 +454,11 @@ func (ba *BA) CoinHandler(coin message.COIN) {
 	}
 
 	ba.mu.Lock()
-	defer ba.mu.Unlock()
+	ba.logger.Printf("[Round:%d] Get Lock for coin msg.\n", ba.round)
+	defer func() {
+		ba.mu.Unlock()
+		ba.logger.Printf("[Round:%d] Release Lock for coin msg.\n", ba.round)
+	}()
 
 	ba.initEpoch(epoch)
 
@@ -452,10 +490,16 @@ func (ba *BA) CoinHandler(coin message.COIN) {
 			if message.SignatureVerify(hashMsg, signature, ba.suite, ba.pubKey) {
 				coinHash := sha256.Sum256(signature)
 				ba.mu.Lock()
-				defer ba.mu.Unlock()
+				ba.logger.Printf("[Round:%d] Get Lock due to receive f+1 coin.\n", ba.round)
+				defer func() {
+					defer ba.mu.Unlock()
+					ba.logger.Printf("[Round:%d] Release Lock due to receive f+1 coin.\n", ba.round)
+
+				}()
 				if ba.stop {
 					return
 				}
+				ba.logger.Printf("[Round:%d] Send channel due to get coin value.\n", ba.round)
 				ba.signal <- eventNotify{event: CoinRecv, epoch: epoch, coin: int(coinHash[0]) % 2}
 			}
 		}()
