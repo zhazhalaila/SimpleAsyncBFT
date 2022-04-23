@@ -7,7 +7,7 @@ import (
 )
 
 func TestConsensusLocalWith4Nodes(t *testing.T) {
-	testConsensus(t, "../localAddress.txt", 4, 1, -1, 1, 10)
+	testConsensus(t, "../localAddress.txt", 4, 1, -1, 1, 2)
 }
 
 func TestConsensusRemoteWith4Nodes(t *testing.T) {
@@ -61,7 +61,7 @@ func testConsensus(t *testing.T, fileName string, n, f, byzantine int, delayMin,
 	c.PeerConnectToPeer(n, byzantine, ipAddr)
 
 	// Client send requests.
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 2; i++ {
 		req := &request{}
 		req.done = make(chan bool)
 		c.ClientSendRequest(i, byzantine, req)

@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -118,7 +117,7 @@ func (c *Client) ClientSendRequest(reqCount, byzantine int, req *request) {
 		if i == byzantine {
 			continue
 		}
-		txs := []string{strconv.Itoa(i)}
+		txs := FakeBatchTx(65536, 0, 0, i)
 		inputBC := message.Input{
 			Txs: txs,
 			ClientReq: message.ClientRequest{
